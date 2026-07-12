@@ -18,6 +18,7 @@ import * as Haptics from 'expo-haptics';
 import { useAppContext } from '../store/AppContext';
 import { NotificationService } from '../services/NotificationService';
 import { CommunityAlertService } from '../services/CommunityAlertService';
+import { normalizeDisplayName } from '../utils/displayName';
 
 const COLORS = {
   bg: '#0a0a0a',
@@ -76,6 +77,7 @@ export default function HomeScreen() {
 
   function handleManualSOS() {
     const timestamp = new Date().toISOString();
+    const senderName = normalizeDisplayName(state.displayName);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
     Vibration.vibrate([0, 300, 100, 300, 100, 500]);
     dispatch({ type: 'SET_SOS_ACTIVE', payload: true });
@@ -103,6 +105,7 @@ export default function HomeScreen() {
         source: 'MANUAL',
         timestamp,
         senderToken: state.expoPushToken,
+        senderName,
       },
     }).catch(() => {});
     navigation.navigate('Emergency');
