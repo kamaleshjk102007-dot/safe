@@ -4,13 +4,16 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 const AppContext = createContext(null);
 
 const initialState = {
-  // Emergency
+  // Local emergency (this device's own SOS)
   sosActive: false,
   triggerSource: null, // 'SMS' | 'MANUAL'
 
   // Location
   currentLocation: null, // { latitude, longitude }
   locationAddress: null,
+
+  // Remote / community alerts (other users' SOS — never touches sosActive/currentLocation)
+  remoteAlerts: [], // [{ alertId, lat, lng, source, timestamp, senderToken }], newest first
 
   // Contacts
   contacts: [],
@@ -34,6 +37,27 @@ function reducer(state, action) {
       return { ...state, currentLocation: action.payload };
     case 'SET_LOCATION_ADDRESS':
       return { ...state, locationAddress: action.payload };
+
+    case 'ADD_REMOTE_ALERT': {
+      const alert = action.payload;
+      const id = alert?.alertId;
+      // De-dupe: ignore if we've already recorded this alertId (covers push + poll double-delivery)
+      if (id && state.remoteAlerts.some(a => a.alertId === id)) {
+        return state;
+      }
+      return {
+        ...state,
+        remoteAlerts: [alert, ...state.remoteAlerts].slice(0, 20),
+      };
+    }
+    case 'DISMISS_REMOTE_ALERT':
+      return {
+        ...state,
+        remoteAlerts: state.remoteAlerts.filter(a => a.alertId !== action.payload),
+      };
+    case 'CLEAR_REMOTE_ALERTS':
+      return { ...state, remoteAlerts: [] };
+
     case 'SET_CONTACTS':
       return { ...state, contacts: action.payload };
     case 'ADD_CONTACT':
