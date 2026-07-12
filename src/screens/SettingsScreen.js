@@ -15,6 +15,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useAppContext } from '../store/AppContext';
 import { SMSService } from '../services/SMSService';
 import { CommunityAlertService } from '../services/CommunityAlertService';
+import { normalizeDisplayName, MAX_DISPLAY_NAME_LENGTH } from '../utils/displayName';
 
 const COLORS = {
   bg: '#0a0a0a',
@@ -60,11 +61,19 @@ export default function SettingsScreen() {
   const [editingSMS, setEditingSMS] = useState(false);
   const [smsInput, setSmsInput] = useState(state.smsNumber);
   const [serverUrlInput, setServerUrlInput] = useState(state.alertServerUrl);
+  const [displayNameInput, setDisplayNameInput] = useState(state.displayName);
   const [testSMSInput, setTestSMSInput] = useState('SOS ALERT | LAT:12.9716 | LNG:77.5946');
 
   function saveSMSNumber() {
     dispatch({ type: 'SET_SMS_NUMBER', payload: smsInput });
     setEditingSMS(false);
+  }
+
+  function saveDisplayName() {
+    const normalized = normalizeDisplayName(displayNameInput);
+    setDisplayNameInput(normalized);
+    dispatch({ type: 'SET_DISPLAY_NAME', payload: normalized });
+    Alert.alert('Display Name Saved', `Your SOS alerts will show as "${normalized}".`);
   }
 
   async function saveServerUrl() {
@@ -112,6 +121,32 @@ export default function SettingsScreen() {
       </View>
 
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scroll}>
+
+        <Section title="Your Identity">
+          <View style={styles.settingRow}>
+            <View style={[styles.settingIconBg, { backgroundColor: '#ff174422' }]}>
+              <Ionicons name="person" size={16} color={COLORS.primary} />
+            </View>
+            <View style={styles.settingInfo}>
+              <Text style={styles.settingLabel}>Display Name</Text>
+              <TextInput
+                style={[styles.inlineInput, { marginTop: 6 }]}
+                value={displayNameInput}
+                onChangeText={setDisplayNameInput}
+                placeholder="e.g., JK"
+                placeholderTextColor={COLORS.muted}
+                maxLength={MAX_DISPLAY_NAME_LENGTH}
+              />
+              <Text style={styles.helperText}>
+                Shown to others when you trigger an SOS. Leave blank to appear as "Someone".
+              </Text>
+              <TouchableOpacity style={styles.testBtn} onPress={saveDisplayName}>
+                <Ionicons name="save" size={14} color="#fff" />
+                <Text style={styles.testBtnText}>Save Name</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </Section>
 
         <Section title="Community Alerts">
           <View style={styles.settingRow}>
@@ -281,6 +316,7 @@ const styles = StyleSheet.create({
   settingInfo: { flex: 1 },
   settingLabel: { fontSize: 14, color: COLORS.text, fontWeight: '500' },
   settingValue: { fontSize: 12, color: COLORS.muted, marginTop: 2 },
+  helperText: { fontSize: 11, color: COLORS.muted, marginTop: 6, lineHeight: 15 },
 
   inlineEdit: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 6 },
   inlineInput: {
