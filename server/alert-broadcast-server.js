@@ -7,6 +7,8 @@ const DATA_FILE = path.join(__dirname, 'registered-tokens.json');
 const ALERTS_FILE = path.join(__dirname, 'broadcast-alerts.json');
 const MAX_BODY_BYTES = 16 * 1024;
 const API_KEY = process.env.SAFEGUARD_ALERT_API_KEY || '';
+const MAX_SENDER_NAME_LENGTH = 40;
+const DEFAULT_SENDER_NAME = 'Someone';
 
 function loadTokens() {
   try {
@@ -62,6 +64,12 @@ function validateExpoToken(token) {
 function validateCoordinate(value, min, max) {
   const number = Number(value);
   return Number.isFinite(number) && number >= min && number <= max;
+}
+
+// Trims whitespace, caps length, and falls back to a default when empty.
+function normalizeSenderName(rawName) {
+  const trimmed = String(rawName || '').trim().slice(0, MAX_SENDER_NAME_LENGTH);
+  return trimmed || DEFAULT_SENDER_NAME;
 }
 
 function clientError(res, error) {
@@ -155,6 +163,7 @@ const server = http.createServer(async (req, res) => {
       const source = String(body.source || 'APP_USER').slice(0, 40);
       const timestamp = body.timestamp || new Date().toISOString();
       const senderToken = body.senderToken || '';
+      const senderName = normalizeSenderName(body.senderName);
       const alert = {
         id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
         lat,
@@ -162,6 +171,7 @@ const server = http.createServer(async (req, res) => {
         source,
         timestamp,
         senderToken,
+        senderName,
       };
       saveAlert(alert);
 
@@ -172,8 +182,8 @@ const server = http.createServer(async (req, res) => {
       const messages = recipientTokens.map((entry) => ({
         to: entry.token,
         sound: 'default',
-        title: 'SOS Emergency Alert',
-        body: `Emergency reported${source ? ` via ${source}` : ''}`,
+        title: `🚨 ${senderName} needs help!`,
+        body: 'Tap to view their location.',
         data: {
           lat,
           lng,
@@ -182,6 +192,7 @@ const server = http.createServer(async (req, res) => {
           remoteBroadcast: true,
           alertId: alert.id,
           senderToken: alert.senderToken,
+          senderName: alert.senderName,
         },
         priority: 'high',
         channelId: 'community-alerts',
