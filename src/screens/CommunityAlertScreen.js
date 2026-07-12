@@ -15,6 +15,7 @@ import { useNavigation } from '@react-navigation/native';
 import * as Haptics from 'expo-haptics';
 
 import { useAppContext } from '../store/AppContext';
+import { normalizeDisplayName } from '../utils/displayName';
 
 // Deliberately distinct from EmergencyScreen's red — this is "someone else needs
 // help", not "I need help", and should never be visually confusable with it.
@@ -47,6 +48,7 @@ export default function CommunityAlertScreen() {
   // in the queue automatically once the current one is dismissed.
   const alert = state.remoteAlerts[0];
   const queuedCount = state.remoteAlerts.length - 1;
+  const senderName = normalizeDisplayName(alert?.senderName);
 
   useEffect(() => {
     // Vibration lives ONLY here, scoped to this screen instance — never
@@ -110,6 +112,14 @@ export default function CommunityAlertScreen() {
             {queuedCount > 0 && (
               <Text style={styles.queueBadge}>+{queuedCount} more alert{queuedCount !== 1 ? 's' : ''} waiting</Text>
             )}
+          </View>
+
+          <View style={styles.card}>
+            <Text style={styles.cardLabel}>SENDER</Text>
+            <View style={styles.senderRow}>
+              <Ionicons name="person-circle" size={20} color={COLORS.primary} />
+              <Text style={styles.senderName}>{senderName}</Text>
+            </View>
           </View>
 
           <View style={styles.card}>
@@ -197,6 +207,8 @@ const styles = StyleSheet.create({
     marginBottom: 6,
   },
   cardValue: { fontSize: 15, color: COLORS.text, fontWeight: '600', fontFamily: 'monospace' },
+  senderRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  senderName: { fontSize: 18, color: COLORS.text, fontWeight: '800' },
   noLocation: { fontSize: 14, color: COLORS.muted },
   mapBtn: {
     flexDirection: 'row',
