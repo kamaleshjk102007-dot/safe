@@ -1,5 +1,4 @@
 import React, { useEffect, useRef, useCallback } from 'react';
-// FIX #1: Removed unused 'Alert' import
 import { StatusBar, AppState, LogBox } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
@@ -21,10 +20,8 @@ function AppInner() {
   const appState = useRef(AppState.currentState);
   const navigationRef = useRef(null);
   const lastCommunityAlertIdRef = useRef('');
+  const seenRemoteAlertIdsRef = useRef(new Set());
 
-  // FIX #2: Wrap broadcastCommunityAlert in useCallback so it has a stable
-  // reference and doesn't cause stale closure bugs when captured by BLE/SMS
-  // callbacks that are registered once on mount.
   const broadcastCommunityAlert = useCallback(
     async (eventPayload) => {
       if (!state.alertServerUrl) return;
@@ -43,46 +40,52 @@ function AppInner() {
     [state.alertServerUrl, state.expoPushToken],
   );
 
-  // FIX #3: handleIncomingCommunityAlert wrapped in useCallback so it can be
-  // safely passed to NotificationService.subscribe without re-subscribing on
-  // every render.
-  const handleIncomingCommunityAlert = useCallback(
-    (payload = {}) => {
-      if (payload?.lat === undefined || payload?.lng === undefined) return;
-
-      dispatch({ type: 'SET_SOS_ACTIVE', payload: true });
-      dispatch({ type: 'SET_TRIGGER_SOURCE', payload: payload.source || 'APP_USER' });
-      dispatch({
-        type: 'SET_LOCATION',
-        payload: {
-          latitude: Number(payload.lat),
-          longitude: Number(payload.lng),
-        },
-      });
-      dispatch({
-        type: 'ADD_HISTORY_EVENT',
-        payload: {
-          source: payload.source || 'APP_USER',
-          lat: Number(payload.lat),
-          lng: Number(payload.lng),
-          timestamp: payload.timestamp || new Date().toISOString(),
-          remoteBroadcast: true,
-        },
-      });
-
-      // FIX #4: Use optional chaining consistently on navigationRef
-      navigationRef.current?.navigate('Emergency');
-    },
-    [dispatch],
-  );
-
-  // FIX #5: Use a ref to hold the latest broadcastCommunityAlert so that BLE
-  // and SMS callbacks (registered once) always call the latest version without
-  // needing re-registration (avoids stale closure).
   const broadcastRef = useRef(broadcastCommunityAlert);
   useEffect(() => {
     broadcastRef.current = broadcastCommunityAlert;
   }, [broadcastCommunityAlert]);
+
+  // FIXED: This used to dispatch SET_SOS_ACTIVE / SET_LOCATION and navigate to
+  // 'Emergency', which hijacked the receiver's own SOS state and location with
+  // the sender's data. Now it only records the alert as a remote/community
+  // alert and opens the dedicated CommunityAlert screen. It never touches
+  // sosActive, triggerSource, or currentLocation.
+  const handleIncomingCommunityAlert = useCallback(
+    (payload = {}) => {
+      if (payload?.lat === undefined || payload?.lng === undefined) return;
+
+      // Never process our own broadcast (belt-and-suspenders alongside the
+      // server-side filter and the poll-loop check below).
+      if (payload.senderToken && payload.senderToken === state.expoPushToken) return;
+
+      const alertId = payload.alertId || `${payload.senderToken || 'unknown'}-${payload.timestamp || Date.now()}`;
+
+      // De-dupe across push-notification delivery and poll-based delivery.
+      if (seenRemoteAlertIdsRef.current.has(alertId)) return;
+      seenRemoteAlertIdsRef.current.add(alertId);
+
+      const remoteAlert = {
+        alertId,
+        lat: Number(payload.lat),
+        lng: Number(payload.lng),
+        source: payload.source || 'APP_USER',
+        timestamp: payload.timestamp || new Date().toISOString(),
+        senderToken: payload.senderToken || '',
+      };
+
+      dispatch({ type: 'ADD_REMOTE_ALERT', payload: remoteAlert });
+
+      // Still logged to History, clearly tagged as a remote event — distinct
+      // from the local user's own SOS history entries.
+      dispatch({
+        type: 'ADD_HISTORY_EVENT',
+        payload: { ...remoteAlert, remoteBroadcast: true },
+      });
+
+      navigationRef.current?.navigate('CommunityAlert');
+    },
+    [dispatch, state.expoPushToken],
+  );
 
   useEffect(() => {
     async function initializeApp() {
@@ -98,6 +101,8 @@ function AppInner() {
         console.error('[App] Notification initialization failed:', error);
       }
 
+      // Local SOS trigger path (unchanged): incoming SMS on THIS phone means
+      // THIS phone's user is in danger — sosActive/EmergencyScreen is correct here.
       SMSService.startListening((smsData) => {
         const timestamp = new Date().toISOString();
         console.log('[App] SMS SOS received:', smsData);
@@ -110,16 +115,13 @@ function AppInner() {
           console.error('[App] Failed to send SMS emergency notification:', error);
         });
 
-        // FIX #5 continued: call via ref so we always have latest serverUrl
         broadcastRef.current({ ...smsData, source: 'SMS', timestamp });
 
-        // FIX #4: optional chaining
         navigationRef.current?.navigate('Emergency');
       });
     }
 
     initializeApp();
-    // FIX #3: subscribe with stable callback reference
     NotificationService.subscribe(handleIncomingCommunityAlert);
 
     const subscription = AppState.addEventListener('change', (nextAppState) => {
@@ -131,12 +133,9 @@ function AppInner() {
       SMSService.stopListening();
       NotificationService.unsubscribe();
     };
-    // FIX #2: dispatch is stable from context, handleIncomingCommunityAlert is
-    // memoized — safe to include. initializeApp is defined inside, so no dep needed.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [handleIncomingCommunityAlert]);
 
-  // FIX #6: Added dispatch to dependency array (it is stable but ESLint requires it)
   useEffect(() => {
     async function registerCurrentDevice() {
       if (!state.alertServerUrl) return;
@@ -171,14 +170,15 @@ function AppInner() {
 
         const newestFirst = [...alerts].sort((a, b) => String(a.id).localeCompare(String(b.id)));
         for (const alert of newestFirst) {
-          if (!alert?.id || alert.senderToken === state.expoPushToken) {
-            lastCommunityAlertIdRef.current = alert?.id || lastCommunityAlertIdRef.current;
-            continue;
-          }
-
+          if (!alert?.id) continue;
           lastCommunityAlertIdRef.current = alert.id;
+
+          // Skip our own broadcast surfaced back via polling.
+          if (alert.senderToken && alert.senderToken === state.expoPushToken) continue;
+
           handleIncomingCommunityAlert({
             ...alert,
+            alertId: alert.id,
             remoteBroadcast: true,
           });
         }
