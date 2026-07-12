@@ -154,17 +154,22 @@ const server = http.createServer(async (req, res) => {
       const lng = Number(body.lng);
       const source = String(body.source || 'APP_USER').slice(0, 40);
       const timestamp = body.timestamp || new Date().toISOString();
+      const senderToken = body.senderToken || '';
       const alert = {
         id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
         lat,
         lng,
         source,
         timestamp,
-        senderToken: body.senderToken || '',
+        senderToken,
       };
       saveAlert(alert);
 
-      const messages = tokens.map((entry) => ({
+      // FIX: exclude the sender's own token from the push fan-out so the
+      // person who triggered the SOS doesn't get notified about their own alert.
+      const recipientTokens = tokens.filter((entry) => entry.token !== senderToken);
+
+      const messages = recipientTokens.map((entry) => ({
         to: entry.token,
         sound: 'default',
         title: 'SOS Emergency Alert',
@@ -183,7 +188,7 @@ const server = http.createServer(async (req, res) => {
       }));
 
       const result = await sendExpoPushNotifications(messages);
-      return json(res, 200, { ok: true, recipients: tokens.length, alert, result });
+      return json(res, 200, { ok: true, recipients: recipientTokens.length, alert, result });
     } catch (error) {
       return clientError(res, error);
     }
