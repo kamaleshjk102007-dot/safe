@@ -11,6 +11,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useAppContext } from '../store/AppContext';
+import { normalizeDisplayName } from '../utils/displayName';
 
 const COLORS = {
   bg: '#0a0a0a',
@@ -36,18 +37,27 @@ function formatDate(isoString) {
   });
 }
 
-function getSourceIcon(source) {
+function getSourceIcon(item) {
+  if (item.remoteBroadcast) return 'people';
   return {
     SMS: 'chatbubble',
     MANUAL: 'hand-left',
-  }[source] || 'alert-circle';
+  }[item.source] || 'alert-circle';
 }
 
-function getSourceColor(source) {
+function getSourceColor(item) {
+  if (item.remoteBroadcast) return COLORS.blue;
   return {
     SMS: COLORS.green,
     MANUAL: COLORS.orange,
-  }[source] || COLORS.primary;
+  }[item.source] || COLORS.primary;
+}
+
+function getSourceLabel(item) {
+  if (item.remoteBroadcast) {
+    return `${normalizeDisplayName(item.senderName)} triggered an SOS`;
+  }
+  return `${item.source} TRIGGER`;
 }
 
 export default function HistoryScreen() {
@@ -70,8 +80,9 @@ export default function HistoryScreen() {
   }
 
   function renderEvent({ item, index }) {
-    const sourceColor = getSourceColor(item.source);
-    const sourceIcon = getSourceIcon(item.source);
+    const sourceColor = getSourceColor(item);
+    const sourceIcon = getSourceIcon(item);
+    const sourceLabel = getSourceLabel(item);
     const hasLocation = item.lat !== undefined && item.lat !== null && item.lng !== undefined && item.lng !== null;
 
     return (
@@ -86,7 +97,7 @@ export default function HistoryScreen() {
         <View style={styles.eventBody}>
           <View style={styles.eventHeader}>
             <Text style={[styles.sourceLabel, { color: sourceColor }]}>
-              {item.source} TRIGGER
+              {sourceLabel}
             </Text>
             <Text style={styles.eventIndex}>#{state.historyEvents.length - index}</Text>
           </View>
@@ -134,6 +145,7 @@ export default function HistoryScreen() {
         {[
           { label: 'SMS Alert', color: COLORS.green },
           { label: 'Manual', color: COLORS.orange },
+          { label: 'Community', color: COLORS.blue },
         ].map(({ label, color }) => (
           <View key={label} style={styles.legendItem}>
             <View style={[styles.legendDot, { backgroundColor: color }]} />
