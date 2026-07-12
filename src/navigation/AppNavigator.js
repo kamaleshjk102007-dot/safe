@@ -6,6 +6,7 @@ import { Ionicons } from '@expo/vector-icons';
 
 import HomeScreen from '../screens/HomeScreen';
 import EmergencyScreen from '../screens/EmergencyScreen';
+import CommunityAlertScreen from '../screens/CommunityAlertScreen';
 import MapScreen from '../screens/MapScreen';
 import ContactsScreen from '../screens/ContactsScreen';
 import HistoryScreen from '../screens/HistoryScreen';
@@ -69,6 +70,8 @@ export default function AppNavigator() {
   return (
     <Stack.Navigator screenOptions={{ headerShown: false }}>
       <Stack.Screen name="Main" component={TabNavigator} />
+
+      {/* Local SOS only — the sender's own emergency. Never opened for a remote alert. */}
       <Stack.Screen
         name="Emergency"
         component={EmergencyScreen}
@@ -76,6 +79,16 @@ export default function AppNavigator() {
           presentation: 'fullScreenModal',
           gestureEnabled: false,
           animationTypeForReplace: 'push',
+        }}
+      />
+
+      {/* Remote / community alerts — informational, dismissible, never touches local SOS state. */}
+      <Stack.Screen
+        name="CommunityAlert"
+        component={CommunityAlertScreen}
+        options={{
+          presentation: 'modal',
+          gestureEnabled: true,
         }}
       />
     </Stack.Navigator>
