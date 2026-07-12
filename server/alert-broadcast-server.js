@@ -2,7 +2,15 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 
-const PORT = process.env.PORT || 3001;
+const PORT = Number(process.env.PORT) || 10000;
+// Render (and most PaaS providers) require binding to all interfaces, not
+// just localhost/loopback or an IPv6-only unspecified address. Passing no
+// host to server.listen() defers to Node's default, which resolves to '::'
+// (IPv6) when available before falling back to '0.0.0.0' — in some
+// container runtimes that IPv6-only bind is invisible to an external port
+// scanner. Binding explicitly to '0.0.0.0' removes that ambiguity entirely.
+const HOST = '0.0.0.0';
+
 const DATA_FILE = path.join(__dirname, 'registered-tokens.json');
 const ALERTS_FILE = path.join(__dirname, 'broadcast-alerts.json');
 const MAX_BODY_BYTES = 16 * 1024;
@@ -103,111 +111,141 @@ function json(res, statusCode, payload) {
 }
 
 const server = http.createServer(async (req, res) => {
-  if (req.method === 'GET' && req.url === '/health') {
-    return json(res, 200, { ok: true, service: 'SafeGuard broadcast server' });
-  }
-
-  if (req.method === 'GET' && req.url.startsWith('/alerts')) {
-    try {
-      if (!isAuthorized(req)) {
-        return json(res, 401, { error: 'Unauthorized' });
-      }
-
-      const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
-      const since = url.searchParams.get('since') || '';
-      const alerts = loadAlerts();
-      const filtered = since ? alerts.filter((alert) => String(alert.id) > since) : alerts.slice(0, 10);
-      return json(res, 200, { ok: true, alerts: filtered.slice(0, 20) });
-    } catch (error) {
-      return clientError(res, error);
+  try {
+    if (req.method === 'GET' && req.url === '/health') {
+      return json(res, 200, { ok: true, service: 'SafeGuard broadcast server' });
     }
-  }
 
-  if (req.method === 'POST' && req.url === '/register-token') {
-    try {
-      if (!isAuthorized(req)) {
-        return json(res, 401, { error: 'Unauthorized' });
-      }
-      const body = await readJson(req);
-      if (!validateExpoToken(body.token)) {
-        return json(res, 400, { error: 'valid Expo push token is required' });
-      }
+    if (req.method === 'GET' && req.url.startsWith('/alerts')) {
+      try {
+        if (!isAuthorized(req)) {
+          return json(res, 401, { error: 'Unauthorized' });
+        }
 
-      const tokens = loadTokens().filter((entry) => entry.token !== body.token);
-      tokens.push({
-        token: body.token,
-        label: String(body.label || 'SafeGuard User').slice(0, 80),
-        platform: body.platform || 'unknown',
-        updatedAt: new Date().toISOString(),
-      });
-      saveTokens(tokens);
-      return json(res, 200, { ok: true, registered: body.token, total: tokens.length });
-    } catch (error) {
-      return clientError(res, error);
+        const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+        const since = url.searchParams.get('since') || '';
+        const alerts = loadAlerts();
+        const filtered = since ? alerts.filter((alert) => String(alert.id) > since) : alerts.slice(0, 10);
+        return json(res, 200, { ok: true, alerts: filtered.slice(0, 20) });
+      } catch (error) {
+        return clientError(res, error);
+      }
     }
-  }
 
-  if (req.method === 'POST' && req.url === '/broadcast-sos') {
-    try {
-      if (!isAuthorized(req)) {
-        return json(res, 401, { error: 'Unauthorized' });
+    if (req.method === 'POST' && req.url === '/register-token') {
+      try {
+        if (!isAuthorized(req)) {
+          return json(res, 401, { error: 'Unauthorized' });
+        }
+        const body = await readJson(req);
+        if (!validateExpoToken(body.token)) {
+          return json(res, 400, { error: 'valid Expo push token is required' });
+        }
+
+        const tokens = loadTokens().filter((entry) => entry.token !== body.token);
+        tokens.push({
+          token: body.token,
+          label: String(body.label || 'SafeGuard User').slice(0, 80),
+          platform: body.platform || 'unknown',
+          updatedAt: new Date().toISOString(),
+        });
+        saveTokens(tokens);
+        return json(res, 200, { ok: true, registered: body.token, total: tokens.length });
+      } catch (error) {
+        return clientError(res, error);
       }
-      const body = await readJson(req);
-      if (!validateCoordinate(body.lat, -90, 90) || !validateCoordinate(body.lng, -180, 180)) {
-        return json(res, 400, { error: 'valid lat and lng are required' });
-      }
+    }
 
-      const tokens = loadTokens();
-      const lat = Number(body.lat);
-      const lng = Number(body.lng);
-      const source = String(body.source || 'APP_USER').slice(0, 40);
-      const timestamp = body.timestamp || new Date().toISOString();
-      const senderToken = body.senderToken || '';
-      const senderName = normalizeSenderName(body.senderName);
-      const alert = {
-        id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-        lat,
-        lng,
-        source,
-        timestamp,
-        senderToken,
-        senderName,
-      };
-      saveAlert(alert);
+    if (req.method === 'POST' && req.url === '/broadcast-sos') {
+      try {
+        if (!isAuthorized(req)) {
+          return json(res, 401, { error: 'Unauthorized' });
+        }
+        const body = await readJson(req);
+        if (!validateCoordinate(body.lat, -90, 90) || !validateCoordinate(body.lng, -180, 180)) {
+          return json(res, 400, { error: 'valid lat and lng are required' });
+        }
 
-      // FIX: exclude the sender's own token from the push fan-out so the
-      // person who triggered the SOS doesn't get notified about their own alert.
-      const recipientTokens = tokens.filter((entry) => entry.token !== senderToken);
-
-      const messages = recipientTokens.map((entry) => ({
-        to: entry.token,
-        sound: 'default',
-        title: `🚨 ${senderName} needs help!`,
-        body: 'Tap to view their location.',
-        data: {
+        const tokens = loadTokens();
+        const lat = Number(body.lat);
+        const lng = Number(body.lng);
+        const source = String(body.source || 'APP_USER').slice(0, 40);
+        const timestamp = body.timestamp || new Date().toISOString();
+        const senderToken = body.senderToken || '';
+        const senderName = normalizeSenderName(body.senderName);
+        const alert = {
+          id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
           lat,
           lng,
           source,
           timestamp,
-          remoteBroadcast: true,
-          alertId: alert.id,
-          senderToken: alert.senderToken,
-          senderName: alert.senderName,
-        },
-        priority: 'high',
-        channelId: 'community-alerts',
-      }));
+          senderToken,
+          senderName,
+        };
+        saveAlert(alert);
 
-      const result = await sendExpoPushNotifications(messages);
-      return json(res, 200, { ok: true, recipients: recipientTokens.length, alert, result });
-    } catch (error) {
-      return clientError(res, error);
+        // FIX: exclude the sender's own token from the push fan-out so the
+        // person who triggered the SOS doesn't get notified about their own alert.
+        const recipientTokens = tokens.filter((entry) => entry.token !== senderToken);
+
+        const messages = recipientTokens.map((entry) => ({
+          to: entry.token,
+          sound: 'default',
+          title: `🚨 ${senderName} needs help!`,
+          body: 'Tap to view their location.',
+          data: {
+            lat,
+            lng,
+            source,
+            timestamp,
+            remoteBroadcast: true,
+            alertId: alert.id,
+            senderToken: alert.senderToken,
+            senderName: alert.senderName,
+          },
+          priority: 'high',
+          channelId: 'community-alerts',
+        }));
+
+        const result = await sendExpoPushNotifications(messages);
+        return json(res, 200, { ok: true, recipients: recipientTokens.length, alert, result });
+      } catch (error) {
+        return clientError(res, error);
+      }
+    }
+
+    return json(res, 404, { error: 'Not found' });
+  } catch (error) {
+    // Defensive top-level catch: any unexpected synchronous throw or
+    // unhandled rejection inside the handler above previously had no
+    // fallback, which risks an unhandled promise rejection crashing the
+    // whole process (Node's default for async handlers). That would kill
+    // the listening socket intermittently after boot, which can *also*
+    // masquerade as "no open ports" on Render if it happens during the
+    // health-check window.
+    console.error('[SafeGuard] Unhandled request error:', error);
+    if (!res.headersSent) {
+      json(res, 500, { error: 'Internal server error' });
     }
   }
-
-  return json(res, 404, { error: 'Not found' });
 });
 
-server.listen(PORT, () => {
-  console.log(`SafeGuard broadcast server listening on http://0.0.0.0:${PORT}`);
+// Surface bind failures (e.g. port already in use, permission denied)
+// explicitly in the logs instead of failing silently — this makes any
+// future startup problem immediately diagnosable from Render's log tab.
+server.on('error', (error) => {
+  console.error('[SafeGuard] Server failed to start:', error);
+  process.exit(1);
+});
+
+server.listen(PORT, HOST, () => {
+  console.log(`SafeGuard broadcast server listening on http://${HOST}:${PORT}`);
+});
+
+process.on('uncaughtException', (err) => {
+  console.error('Uncaught Exception:', err);
+});
+
+process.on('unhandledRejection', (err) => {
+  console.error('Unhandled Rejection:', err);
 });
