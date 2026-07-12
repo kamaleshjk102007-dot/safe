@@ -13,7 +13,7 @@ const initialState = {
   locationAddress: null,
 
   // Remote / community alerts (other users' SOS — never touches sosActive/currentLocation)
-  remoteAlerts: [], // [{ alertId, lat, lng, source, timestamp, senderToken }], newest first
+  remoteAlerts: [], // [{ alertId, lat, lng, source, timestamp, senderToken, senderName }], newest first
 
   // Contacts
   contacts: [],
@@ -25,6 +25,7 @@ const initialState = {
   smsNumber: '',
   alertServerUrl: '',
   expoPushToken: '',
+  displayName: '',
 };
 
 function reducer(state, action) {
@@ -89,6 +90,8 @@ function reducer(state, action) {
       return { ...state, alertServerUrl: action.payload };
     case 'SET_EXPO_PUSH_TOKEN':
       return { ...state, expoPushToken: action.payload };
+    case 'SET_DISPLAY_NAME':
+      return { ...state, displayName: action.payload };
     case 'DISMISS_SOS':
       return { ...state, sosActive: false, triggerSource: null };
     default:
@@ -117,7 +120,8 @@ export function AppProvider({ children }) {
     AsyncStorage.setItem('smsNumber', state.smsNumber || '');
     AsyncStorage.setItem('alertServerUrl', state.alertServerUrl || '');
     AsyncStorage.setItem('expoPushToken', state.expoPushToken || '');
-  }, [state.smsNumber, state.alertServerUrl, state.expoPushToken]);
+    AsyncStorage.setItem('displayName', state.displayName || '');
+  }, [state.smsNumber, state.alertServerUrl, state.expoPushToken, state.displayName]);
 
   async function loadPersistedData() {
     try {
@@ -126,12 +130,14 @@ export function AppProvider({ children }) {
       const smsNumber = await AsyncStorage.getItem('smsNumber');
       const alertServerUrl = await AsyncStorage.getItem('alertServerUrl');
       const expoPushToken = await AsyncStorage.getItem('expoPushToken');
+      const displayName = await AsyncStorage.getItem('displayName');
 
       if (contacts) dispatch({ type: 'SET_CONTACTS', payload: JSON.parse(contacts) });
       if (history) dispatch({ type: 'SET_HISTORY', payload: JSON.parse(history) });
       if (smsNumber) dispatch({ type: 'SET_SMS_NUMBER', payload: smsNumber });
       if (alertServerUrl) dispatch({ type: 'SET_ALERT_SERVER_URL', payload: alertServerUrl });
       if (expoPushToken) dispatch({ type: 'SET_EXPO_PUSH_TOKEN', payload: expoPushToken });
+      if (displayName) dispatch({ type: 'SET_DISPLAY_NAME', payload: displayName });
     } catch (e) {
       console.error('[AppContext] Failed to load persisted data:', e);
     }
