@@ -10,6 +10,7 @@ import { SMSService } from './src/services/SMSService';
 import { NotificationService } from './src/services/NotificationService';
 import { PermissionsService } from './src/services/PermissionsService';
 import { CommunityAlertService } from './src/services/CommunityAlertService';
+import { normalizeDisplayName } from './src/utils/displayName';
 
 LogBox.ignoreLogs([
   'Possible unhandled promise rejection',
@@ -31,13 +32,14 @@ function AppInner() {
           payload: {
             ...eventPayload,
             senderToken: state.expoPushToken,
+            senderName: normalizeDisplayName(state.displayName),
           },
         });
       } catch (error) {
         console.warn('[CommunityAlerts] Broadcast failed:', error.message || error);
       }
     },
-    [state.alertServerUrl, state.expoPushToken],
+    [state.alertServerUrl, state.expoPushToken, state.displayName],
   );
 
   const broadcastRef = useRef(broadcastCommunityAlert);
@@ -50,8 +52,24 @@ function AppInner() {
   // the sender's data. Now it only records the alert as a remote/community
   // alert and opens the dedicated CommunityAlert screen. It never touches
   // sosActive, triggerSource, or currentLocation.
+  //
+  // FIXED (2): This handler is also invoked by NotificationService's
+  // foreground listener, which fires for ANY notification received while
+  // the app is open — including the sender's own local emergency
+  // notification (scheduled with trigger: null in
+  // NotificationService.sendEmergencyNotification). That local notification
+  // was reaching this function and bouncing the sender straight to
+  // CommunityAlertScreen right after pressing SOS. The guard below requires
+  // payload.remoteBroadcast to be explicitly true — a flag only ever set by
+  // the server's push payload or by the poll loop for genuine remote
+  // alerts — so the sender's own local notification is now a no-op here.
   const handleIncomingCommunityAlert = useCallback(
     (payload = {}) => {
+      // Only ever act on genuine remote broadcasts. The sender's own local
+      // emergency notification fires through this same listener and must
+      // never be treated as an incoming community alert.
+      if (!payload.remoteBroadcast) return;
+
       if (payload?.lat === undefined || payload?.lng === undefined) return;
 
       // Never process our own broadcast (belt-and-suspenders alongside the
@@ -71,6 +89,7 @@ function AppInner() {
         source: payload.source || 'APP_USER',
         timestamp: payload.timestamp || new Date().toISOString(),
         senderToken: payload.senderToken || '',
+        senderName: normalizeDisplayName(payload.senderName),
       };
 
       dispatch({ type: 'ADD_REMOTE_ALERT', payload: remoteAlert });
