@@ -204,21 +204,25 @@ export default function HomeScreen() {
         <View style={styles.sosContainer}>
           <Text style={styles.sosLabel}>PRESS FOR EMERGENCY</Text>
 
-          {/* Outer rings */}
-          <Animated.View style={[styles.sosRing3]} />
-          <Animated.View style={[styles.sosRing2]} />
-          <Animated.View style={[styles.sosRing1]} />
+          <View style={styles.sosStage}>
+            {/* Every ring and the button use this one fixed center point. */}
+            <Animated.View style={[styles.sosRing3]} />
+            <Animated.View style={[styles.sosRing2]} />
+            <Animated.View style={[styles.sosRing1]} />
 
-          <Animated.View style={{ transform: [{ scale: pulseAnim }] }}>
-            <TouchableOpacity
-              style={styles.sosButton}
-              onPress={handleManualSOS}
-              activeOpacity={0.85}
-            >
-              <Ionicons name="alert-circle" size={52} color="#fff" />
-              <Text style={styles.sosButtonText}>SOS</Text>
-            </TouchableOpacity>
-          </Animated.View>
+            <Animated.View style={[styles.sosButtonWrap, { transform: [{ scale: pulseAnim }] }]}>
+              <TouchableOpacity
+                style={styles.sosButton}
+                onPress={handleManualSOS}
+                activeOpacity={0.85}
+                accessibilityRole="button"
+                accessibilityLabel="Send emergency SOS"
+              >
+                <Ionicons name="alert-circle" size={52} color="#fff" />
+                <Text style={styles.sosButtonText}>SOS</Text>
+              </TouchableOpacity>
+            </Animated.View>
+          </View>
 
           <Text style={styles.sosHint}>Tap to alert your contacts</Text>
         </View>
@@ -324,43 +328,51 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     position: 'relative',
   },
+  sosStage: {
+    width: 240,
+    height: 240,
+    alignItems: 'center',
+    justifyContent: 'center',
+    position: 'relative',
+  },
   sosLabel: {
     fontSize: 11,
     letterSpacing: 2.5,
     color: COLORS.muted,
-    marginBottom: 32,
+    marginBottom: 16,
     textTransform: 'uppercase',
   },
   sosRing3: {
     position: 'absolute',
-    top: 20,
+    top: 0,
+    left: 0,
     width: 240,
     height: 240,
     borderRadius: 120,
     borderWidth: 1,
     borderColor: '#00C2A822',
-    alignSelf: 'center',
   },
   sosRing2: {
     position: 'absolute',
-    top: 40,
+    top: 20,
+    left: 20,
     width: 200,
     height: 200,
     borderRadius: 100,
     borderWidth: 1,
     borderColor: '#00C2A838',
-    alignSelf: 'center',
   },
   sosRing1: {
     position: 'absolute',
-    top: 60,
+    top: 40,
+    left: 40,
     width: 160,
     height: 160,
     borderRadius: 80,
     borderWidth: 1,
     borderColor: '#00C2A855',
-    alignSelf: 'center',
   },
+  sosButtonWrap: { width: 140, height: 140, alignItems: 'center', justifyContent: 'center' },
   sosButton: {
     width: 140,
     height: 140,
