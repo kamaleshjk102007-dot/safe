@@ -8,6 +8,8 @@ import {
   Vibration,
   ScrollView,
   StatusBar,
+  NativeModules,
+  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -75,7 +77,7 @@ export default function HomeScreen() {
     }
   }
 
-  function handleManualSOS() {
+  async function handleManualSOS() {
     const timestamp = new Date().toISOString();
     const senderName = normalizeDisplayName(state.displayName);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
@@ -97,18 +99,30 @@ export default function HomeScreen() {
       source: 'MANUAL',
       timestamp,
     }).catch(() => {});
-    CommunityAlertService.broadcastSOS({
-      serverUrl: state.alertServerUrl,
-      payload: {
+    navigation.navigate('Emergency');
+
+    if (state.contacts[0]?.phone) {
+      NativeModules.EmergencyCall?.callNumber(state.contacts[0].phone).catch((error) => {
+        Alert.alert('Automatic Call Failed', error.message || 'Could not call the emergency contact.');
+      });
+    }
+
+    try {
+      const result = await CommunityAlertService.broadcastSOS({
+        serverUrl: state.alertServerUrl,
+        payload: {
         lat: state.currentLocation?.latitude,
         lng: state.currentLocation?.longitude,
         source: 'MANUAL',
         timestamp,
         senderToken: state.expoPushToken,
         senderName,
-      },
-    }).catch(() => {});
-    navigation.navigate('Emergency');
+        },
+      });
+      if (result?.alert?.id) dispatch({ type: 'SET_ACTIVE_ALERT_ID', payload: result.alert.id });
+    } catch (error) {
+      Alert.alert('Community Alert Failed', error.message || 'Other app users may not have received this SOS.');
+    }
   }
 
   const connectionColor = COLORS.green;

@@ -9,6 +9,9 @@ import {
   Linking,
   ScrollView,
   StatusBar,
+  Modal,
+  TextInput,
+  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -17,6 +20,7 @@ import * as Haptics from 'expo-haptics';
 import * as KeepAwake from 'expo-keep-awake';
 
 import { useAppContext } from '../store/AppContext';
+import { CommunityAlertService } from '../services/CommunityAlertService';
 
 const COLORS = {
   bg: '#0d0000',
@@ -36,6 +40,9 @@ export default function EmergencyScreen() {
   const opacityAnim = useRef(new Animated.Value(0)).current;
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [dismissed, setDismissed] = useState(false);
+  const [passkeyVisible, setPasskeyVisible] = useState(false);
+  const [passkeyEntry, setPasskeyEntry] = useState('');
+  const [endingAlert, setEndingAlert] = useState(false);
 
   useEffect(() => {
     KeepAwake.activateKeepAwakeAsync().catch(() => {});
@@ -79,10 +86,39 @@ export default function EmergencyScreen() {
   }
 
   function handleDismiss() {
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+    if (!state.safetyPasskey) {
+      Alert.alert('Set a Safety Passkey', 'Create your I’m Safe passkey in Settings before ending an SOS.');
+      return;
+    }
+    setPasskeyEntry('');
+    setPasskeyVisible(true);
+  }
+
+  async function confirmSafe() {
+    if (passkeyEntry !== state.safetyPasskey) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => {});
+      Alert.alert('Incorrect Passkey', 'The SOS remains active. Try again.');
+      return;
+    }
+    setEndingAlert(true);
+    try {
+      if (state.activeAlertId && state.alertServerUrl) {
+        await CommunityAlertService.resolveSOS({
+          serverUrl: state.alertServerUrl,
+          alertId: state.activeAlertId,
+          senderToken: state.expoPushToken,
+        });
+      }
+    } catch (error) {
+      Alert.alert('Could Not Notify Everyone', `Your SOS is still active. ${error.message || ''}`);
+      setEndingAlert(false);
+      return;
+    }
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
     Vibration.cancel();
     dispatch({ type: 'DISMISS_SOS' });
     setDismissed(true);
+    setPasskeyVisible(false);
     navigation.goBack();
   }
 
@@ -197,6 +233,32 @@ export default function EmergencyScreen() {
 
         </ScrollView>
       </SafeAreaView>
+      <Modal visible={passkeyVisible} transparent animationType="fade" onRequestClose={() => setPasskeyVisible(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.passkeyCard}>
+            <Ionicons name="shield-checkmark" size={36} color="#00c853" />
+            <Text style={styles.passkeyTitle}>Confirm You’re Safe</Text>
+            <Text style={styles.passkeyHelp}>Enter your saved passkey. Everyone will be notified and this SOS will close automatically.</Text>
+            <TextInput
+              style={styles.passkeyInput}
+              value={passkeyEntry}
+              onChangeText={text => setPasskeyEntry(text.replace(/\D/g, '').slice(0, 6))}
+              keyboardType="number-pad"
+              secureTextEntry
+              maxLength={6}
+              autoFocus
+              placeholder="Passkey"
+              placeholderTextColor="#777"
+            />
+            <TouchableOpacity style={styles.confirmSafeBtn} onPress={confirmSafe} disabled={endingAlert}>
+              <Text style={styles.confirmSafeText}>{endingAlert ? 'Notifying everyone…' : 'Confirm I’m Safe'}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.keepActiveBtn} onPress={() => setPasskeyVisible(false)} disabled={endingAlert}>
+              <Text style={styles.keepActiveText}>Keep SOS Active</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </Animated.View>
   );
 }
@@ -340,4 +402,13 @@ const styles = StyleSheet.create({
     marginTop: 8,
     marginBottom: 20,
   },
+  modalOverlay: { flex: 1, backgroundColor: '#000000cc', alignItems: 'center', justifyContent: 'center', padding: 24 },
+  passkeyCard: { width: '100%', backgroundColor: '#161616', borderRadius: 20, padding: 24, alignItems: 'center', borderWidth: 1, borderColor: '#00c85355' },
+  passkeyTitle: { color: '#fff', fontSize: 20, fontWeight: '800', marginTop: 12 },
+  passkeyHelp: { color: '#aaa', fontSize: 13, lineHeight: 19, textAlign: 'center', marginTop: 8 },
+  passkeyInput: { width: '100%', backgroundColor: '#222', borderRadius: 12, borderWidth: 1, borderColor: '#444', color: '#fff', fontSize: 22, letterSpacing: 8, textAlign: 'center', padding: 14, marginTop: 20 },
+  confirmSafeBtn: { width: '100%', backgroundColor: '#00a843', borderRadius: 12, padding: 16, alignItems: 'center', marginTop: 16 },
+  confirmSafeText: { color: '#fff', fontSize: 15, fontWeight: '800' },
+  keepActiveBtn: { padding: 14, marginTop: 4 },
+  keepActiveText: { color: '#ff8a80', fontSize: 13, fontWeight: '600' },
 });

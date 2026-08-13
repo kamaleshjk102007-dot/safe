@@ -111,6 +111,12 @@ class CommunityAlertServiceClass {
     return postJson(`${baseUrl}/broadcast-sos`, payload);
   }
 
+  async resolveSOS({ serverUrl, alertId, senderToken }) {
+    const baseUrl = normalizeUrl(serverUrl);
+    if (!baseUrl || !alertId) throw new Error('No active community alert to resolve');
+    return postJson(`${baseUrl}/resolve-sos`, { alertId, senderToken });
+  }
+
   async fetchAlerts({ serverUrl, since }) {
     const baseUrl = normalizeUrl(serverUrl);
     if (!baseUrl) return [];

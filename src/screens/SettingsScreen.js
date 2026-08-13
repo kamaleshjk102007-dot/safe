@@ -62,6 +62,7 @@ export default function SettingsScreen() {
   const [smsInput, setSmsInput] = useState(state.smsNumber);
   const [serverUrlInput, setServerUrlInput] = useState(state.alertServerUrl);
   const [displayNameInput, setDisplayNameInput] = useState(state.displayName);
+  const [passkeyInput, setPasskeyInput] = useState(state.safetyPasskey);
   const [testSMSInput, setTestSMSInput] = useState('SOS ALERT | LAT:12.9716 | LNG:77.5946');
 
   function saveSMSNumber() {
@@ -74,6 +75,17 @@ export default function SettingsScreen() {
     setDisplayNameInput(normalized);
     dispatch({ type: 'SET_DISPLAY_NAME', payload: normalized });
     Alert.alert('Display Name Saved', `Your SOS alerts will show as "${normalized}".`);
+  }
+
+  function saveSafetyPasskey() {
+    const value = passkeyInput.replace(/\D/g, '').slice(0, 6);
+    if (value.length < 4) {
+      Alert.alert('Passkey Required', 'Choose a 4 to 6 digit passkey.');
+      return;
+    }
+    setPasskeyInput(value);
+    dispatch({ type: 'SET_SAFETY_PASSKEY', payload: value });
+    Alert.alert('Safety Passkey Saved', 'This passkey is now required to end your SOS alert.');
   }
 
   async function saveServerUrl() {
@@ -143,6 +155,32 @@ export default function SettingsScreen() {
               <TouchableOpacity style={styles.testBtn} onPress={saveDisplayName}>
                 <Ionicons name="save" size={14} color="#fff" />
                 <Text style={styles.testBtnText}>Save Name</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </Section>
+
+        <Section title="SOS Security">
+          <View style={[styles.settingRow, styles.settingRowLast]}>
+            <View style={[styles.settingIconBg, { backgroundColor: '#00e67622' }]}>
+              <Ionicons name="keypad" size={16} color={COLORS.green} />
+            </View>
+            <View style={styles.settingInfo}>
+              <Text style={styles.settingLabel}>I’m Safe Passkey</Text>
+              <TextInput
+                style={[styles.inlineInput, { marginTop: 6 }]}
+                value={passkeyInput}
+                onChangeText={text => setPasskeyInput(text.replace(/\D/g, '').slice(0, 6))}
+                placeholder="4–6 digit passkey"
+                placeholderTextColor={COLORS.muted}
+                keyboardType="number-pad"
+                secureTextEntry
+                maxLength={6}
+              />
+              <Text style={styles.helperText}>Required before “I’m Safe” stops your alert on every phone.</Text>
+              <TouchableOpacity style={styles.testBtn} onPress={saveSafetyPasskey}>
+                <Ionicons name="save" size={14} color="#fff" />
+                <Text style={styles.testBtnText}>Save Passkey</Text>
               </TouchableOpacity>
             </View>
           </View>

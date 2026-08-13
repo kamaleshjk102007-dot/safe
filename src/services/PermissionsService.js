@@ -23,6 +23,7 @@ export const PermissionsService = {
     permissions.push(
       PermissionsAndroid.PERMISSIONS.RECEIVE_SMS,
       PermissionsAndroid.PERMISSIONS.READ_SMS,
+      PermissionsAndroid.PERMISSIONS.CALL_PHONE,
     );
 
     try {

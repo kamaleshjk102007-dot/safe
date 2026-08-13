@@ -43,6 +43,10 @@ function saveAlert(alert) {
   fs.writeFileSync(ALERTS_FILE, JSON.stringify(alerts, null, 2));
 }
 
+function saveAlerts(alerts) {
+  fs.writeFileSync(ALERTS_FILE, JSON.stringify(alerts.slice(0, 100), null, 2));
+}
+
 async function readJson(req) {
   const chunks = [];
   let totalBytes = 0;
@@ -209,6 +213,44 @@ const server = http.createServer(async (req, res) => {
 
         const result = await sendExpoPushNotifications(messages);
         return json(res, 200, { ok: true, recipients: recipientTokens.length, alert, result });
+      } catch (error) {
+        return clientError(res, error);
+      }
+    }
+
+    if (req.method === 'POST' && req.url === '/resolve-sos') {
+      try {
+        if (!isAuthorized(req)) return json(res, 401, { error: 'Unauthorized' });
+        const body = await readJson(req);
+        const alerts = loadAlerts();
+        const index = alerts.findIndex((alert) => alert.id === body.alertId);
+        if (index < 0) return json(res, 404, { error: 'Alert not found' });
+        if (!body.senderToken || alerts[index].senderToken !== body.senderToken) {
+          return json(res, 403, { error: 'Only the alert sender can mark it safe' });
+        }
+
+        const resolvedAt = new Date().toISOString();
+        alerts[index] = { ...alerts[index], resolved: true, resolvedAt };
+        const resolutionEvent = {
+          id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          safeResolved: true,
+          targetAlertId: body.alertId,
+          resolvedAt,
+          senderName: alerts[index].senderName,
+        };
+        saveAlerts([resolutionEvent, ...alerts]);
+        const recipientTokens = loadTokens().filter((entry) => entry.token !== body.senderToken);
+        const messages = recipientTokens.map((entry) => ({
+          to: entry.token,
+          sound: 'default',
+          title: `✅ ${alerts[index].senderName} is safe`,
+          body: 'The SOS alert has ended automatically.',
+          data: { remoteBroadcast: true, safeResolved: true, alertId: body.alertId, resolvedAt },
+          priority: 'high',
+          channelId: 'community-alerts',
+        }));
+        const result = await sendExpoPushNotifications(messages);
+        return json(res, 200, { ok: true, alert: alerts[index], result });
       } catch (error) {
         return clientError(res, error);
       }

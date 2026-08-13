@@ -27,7 +27,7 @@ function AppInner() {
     async (eventPayload) => {
       if (!state.alertServerUrl) return;
       try {
-        await CommunityAlertService.broadcastSOS({
+        return await CommunityAlertService.broadcastSOS({
           serverUrl: state.alertServerUrl,
           payload: {
             ...eventPayload,
@@ -69,6 +69,11 @@ function AppInner() {
       // emergency notification fires through this same listener and must
       // never be treated as an incoming community alert.
       if (!payload.remoteBroadcast) return;
+
+      if (payload.safeResolved && payload.alertId) {
+        dispatch({ type: 'RESOLVE_REMOTE_ALERT', payload: { alertId: payload.alertId, resolvedAt: payload.resolvedAt } });
+        return;
+      }
 
       if (payload?.lat === undefined || payload?.lng === undefined) return;
 
@@ -134,7 +139,11 @@ function AppInner() {
           console.error('[App] Failed to send SMS emergency notification:', error);
         });
 
-        broadcastRef.current({ ...smsData, source: 'SMS', timestamp });
+        broadcastRef.current({ ...smsData, source: 'SMS', timestamp })
+          .then(result => {
+            if (result?.alert?.id) dispatch({ type: 'SET_ACTIVE_ALERT_ID', payload: result.alert.id });
+          })
+          .catch(() => {});
 
         navigationRef.current?.navigate('Emergency');
       });
@@ -191,6 +200,11 @@ function AppInner() {
         for (const alert of newestFirst) {
           if (!alert?.id) continue;
           lastCommunityAlertIdRef.current = alert.id;
+
+          if (alert.safeResolved) {
+            handleIncomingCommunityAlert({ remoteBroadcast: true, safeResolved: true, alertId: alert.targetAlertId, resolvedAt: alert.resolvedAt });
+            continue;
+          }
 
           // Skip our own broadcast surfaced back via polling.
           if (alert.senderToken && alert.senderToken === state.expoPushToken) continue;

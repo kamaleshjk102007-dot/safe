@@ -70,6 +70,16 @@ export default function CommunityAlertScreen() {
     }
   }, [alert]);
 
+  useEffect(() => {
+    if (!alert?.resolved) return undefined;
+    Vibration.cancel();
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+    const timer = setTimeout(() => {
+      dispatch({ type: 'DISMISS_REMOTE_ALERT', payload: alert.alertId });
+    }, 3500);
+    return () => clearTimeout(timer);
+  }, [alert?.resolved, alert?.alertId, dispatch]);
+
   function handleDismiss() {
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
     Vibration.cancel();
@@ -105,10 +115,10 @@ export default function CommunityAlertScreen() {
         <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
           <View style={styles.header}>
             <View style={styles.iconBg}>
-              <Ionicons name="people" size={40} color="#fff" />
+              <Ionicons name={alert.resolved ? 'shield-checkmark' : 'people'} size={40} color="#fff" />
             </View>
-            <Text style={styles.title}>Community SOS Alert</Text>
-            <Text style={styles.subtitle}>Someone nearby has triggered an emergency</Text>
+            <Text style={styles.title}>{alert.resolved ? `${senderName} is safe` : 'Community SOS Alert'}</Text>
+            <Text style={styles.subtitle}>{alert.resolved ? 'This emergency has ended. Closing automatically…' : 'Someone nearby has triggered an emergency'}</Text>
             {queuedCount > 0 && (
               <Text style={styles.queueBadge}>+{queuedCount} more alert{queuedCount !== 1 ? 's' : ''} waiting</Text>
             )}
