@@ -1,6 +1,7 @@
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 
 const PORT = Number(process.env.PORT) || 10000;
 // Render (and most PaaS providers) require binding to all interfaces, not
@@ -13,7 +14,8 @@ const HOST = '0.0.0.0';
 
 const DATA_FILE = path.join(__dirname, 'registered-tokens.json');
 const ALERTS_FILE = path.join(__dirname, 'broadcast-alerts.json');
-const MAX_BODY_BYTES = 16 * 1024;
+const EVIDENCE_DIR = path.join(__dirname, 'evidence-vault');
+const MAX_BODY_BYTES = 2 * 1024 * 1024;
 const API_KEY = process.env.SAFEGUARD_ALERT_API_KEY || '';
 const MAX_SENDER_NAME_LENGTH = 40;
 const DEFAULT_SENDER_NAME = 'Someone';
@@ -53,6 +55,20 @@ function saveAlert(alert) {
 
 function saveAlerts(alerts) {
   fs.writeFileSync(ALERTS_FILE, JSON.stringify(alerts.slice(0, 100), null, 2));
+}
+
+function evidenceOwnerId(token) {
+  return crypto.createHash('sha256').update(String(token || '')).digest('hex');
+}
+
+function ensureEvidenceDir() {
+  fs.mkdirSync(EVIDENCE_DIR, { recursive: true });
+}
+
+function ownerEvidenceFiles(token) {
+  ensureEvidenceDir();
+  const prefix = `${evidenceOwnerId(token)}-`;
+  return fs.readdirSync(EVIDENCE_DIR).filter(name => name.startsWith(prefix) && name.endsWith('.json'));
 }
 
 async function readJson(req) {
@@ -174,6 +190,46 @@ const server = http.createServer(async (req, res) => {
       } catch (error) {
         return clientError(res, error);
       }
+    }
+
+    if (req.method === 'POST' && req.url === '/evidence/upload') {
+      try {
+        if (!isAuthorized(req)) return json(res, 401, { error: 'Unauthorized' });
+        const body = await readJson(req);
+        if (!validateExpoToken(body.ownerToken)) return json(res, 400, { error: 'valid owner token is required' });
+        const evidenceId = String(body.evidenceId || '').replace(/[^A-Za-z0-9_-]/g, '').slice(0, 80);
+        if (!evidenceId) return json(res, 400, { error: 'evidenceId is required' });
+        const audioBase64 = String(body.audioBase64 || '');
+        if (audioBase64 && !/^[A-Za-z0-9+/=]+$/.test(audioBase64)) return json(res, 400, { error: 'invalid audio data' });
+        ensureEvidenceDir();
+        const ownerId = evidenceOwnerId(body.ownerToken);
+        const record = { id: evidenceId, ownerId, startedAt: body.startedAt || null, endedAt: body.endedAt || null,
+          locations: Array.isArray(body.locations) ? body.locations.slice(-100) : [], audioBase64,
+          uploadedAt: new Date().toISOString(), retainedAfterDuress: false };
+        fs.writeFileSync(path.join(EVIDENCE_DIR, `${ownerId}-${evidenceId}.json`), JSON.stringify(record));
+        const files = ownerEvidenceFiles(body.ownerToken).map(name => ({ name, time: fs.statSync(path.join(EVIDENCE_DIR, name)).mtimeMs })).sort((a, b) => b.time - a.time);
+        files.slice(20).forEach(item => fs.unlinkSync(path.join(EVIDENCE_DIR, item.name)));
+        return json(res, 200, { ok: true, evidenceId, uploadedAt: record.uploadedAt });
+      } catch (error) { return clientError(res, error); }
+    }
+
+    if (req.method === 'POST' && req.url === '/evidence/delete') {
+      try {
+        if (!isAuthorized(req)) return json(res, 401, { error: 'Unauthorized' });
+        const body = await readJson(req);
+        if (!validateExpoToken(body.ownerToken)) return json(res, 400, { error: 'valid owner token is required' });
+        const files = ownerEvidenceFiles(body.ownerToken);
+        if (body.duress === true) {
+          files.forEach(name => {
+            const file = path.join(EVIDENCE_DIR, name);
+            const record = JSON.parse(fs.readFileSync(file, 'utf8'));
+            fs.writeFileSync(file, JSON.stringify({ ...record, retainedAfterDuress: true, duressAt: new Date().toISOString() }));
+          });
+          return json(res, 200, { ok: true, hiddenLocally: true, retained: files.length });
+        }
+        files.forEach(name => fs.unlinkSync(path.join(EVIDENCE_DIR, name)));
+        return json(res, 200, { ok: true, deleted: files.length });
+      } catch (error) { return clientError(res, error); }
     }
 
     if (req.method === 'POST' && req.url === '/broadcast-sos') {

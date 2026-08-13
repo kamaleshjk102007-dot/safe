@@ -1,6 +1,7 @@
 import Constants from 'expo-constants';
 import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
+import * as FileSystem from 'expo-file-system';
 
 const REQUEST_TIMEOUT_MS = 10000;
 const FALLBACK_EAS_PROJECT_ID = 'b0ddfa23-d2bc-4882-8704-3b47ffa69bfc';
@@ -134,6 +135,22 @@ class CommunityAlertServiceClass {
     return postJson(`${baseUrl}/update-sos-location`, {
       alertId, senderToken, lat: location.latitude, lng: location.longitude, accuracy: location.accuracy,
     });
+  }
+
+  async uploadEvidence({ serverUrl, ownerToken, evidence }) {
+    const baseUrl = normalizeUrl(serverUrl);
+    if (!baseUrl || !ownerToken || !evidence) return null;
+    const audioBase64 = evidence.audioUri
+      ? await FileSystem.readAsStringAsync(evidence.audioUri, { encoding: FileSystem.EncodingType.Base64 })
+      : '';
+    return postJson(`${baseUrl}/evidence/upload`, { ownerToken, evidenceId: evidence.id,
+      startedAt: evidence.startedAt, endedAt: evidence.endedAt, locations: evidence.locations || [], audioBase64 });
+  }
+
+  async deleteEvidence({ serverUrl, ownerToken, duress = false }) {
+    const baseUrl = normalizeUrl(serverUrl);
+    if (!baseUrl || !ownerToken) return null;
+    return postJson(`${baseUrl}/evidence/delete`, { ownerToken, duress });
   }
 
   async getAlertStatus({ serverUrl, alertId }) {

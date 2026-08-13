@@ -54,6 +54,17 @@ export default function EmergencyScreen() {
   const nextCallPromptVisible = useRef(false);
   const escalatedRadiusRef = useRef(1);
 
+  async function persistEvidence(evidence) {
+    if (!evidence) return;
+    dispatch({ type: 'ADD_EVIDENCE', payload: { ...evidence, backupStatus: 'syncing' } });
+    try {
+      const result = await CommunityAlertService.uploadEvidence({ serverUrl: state.alertServerUrl, ownerToken: state.expoPushToken, evidence });
+      dispatch({ type: 'UPDATE_EVIDENCE', payload: { id: evidence.id, backupStatus: result ? 'backed_up' : 'local_only', uploadedAt: result?.uploadedAt } });
+    } catch (_) {
+      dispatch({ type: 'UPDATE_EVIDENCE', payload: { id: evidence.id, backupStatus: 'local_only' } });
+    }
+  }
+
   useEffect(() => {
     KeepAwake.activateKeepAwakeAsync().catch(() => {});
     startAnimations();
@@ -75,7 +86,7 @@ export default function EmergencyScreen() {
       setEvidenceRecording(true);
       const timer = setTimeout(() => {
         EvidenceService.stop().then(evidence => {
-          if (evidence) dispatch({ type: 'ADD_EVIDENCE', payload: evidence });
+          persistEvidence(evidence);
           if (active) setEvidenceRecording(false);
         }).catch(() => {});
       }, 30000);
@@ -84,7 +95,7 @@ export default function EmergencyScreen() {
     return () => {
       active = false;
       clearTimeout(EvidenceService.recordingTimer);
-      EvidenceService.stop().then(evidence => { if (evidence) dispatch({ type: 'ADD_EVIDENCE', payload: evidence }); }).catch(() => {});
+      EvidenceService.stop().then(persistEvidence).catch(() => {});
     };
   }, [state.evidenceConsent, state.sosActive, dispatch]);
 
@@ -219,7 +230,7 @@ export default function EmergencyScreen() {
   async function confirmSafe() {
     if (state.duressPasskey && passkeyEntry === state.duressPasskey) {
       const evidence = await EvidenceService.stop().catch(() => null);
-      if (evidence) dispatch({ type: 'ADD_EVIDENCE', payload: evidence });
+      await persistEvidence(evidence);
       NativeModules.EmergencyCall?.cancelCalls();
       Vibration.cancel();
       dispatch({ type: 'DISMISS_SOS' });
@@ -248,7 +259,7 @@ export default function EmergencyScreen() {
     }
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
     const evidence = await EvidenceService.stop().catch(() => null);
-    if (evidence) dispatch({ type: 'ADD_EVIDENCE', payload: evidence });
+    await persistEvidence(evidence);
     NativeModules.EmergencyCall?.cancelCalls();
     Vibration.cancel();
     dispatch({ type: 'DISMISS_SOS' });

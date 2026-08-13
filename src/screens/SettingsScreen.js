@@ -9,6 +9,7 @@ import {
   Alert,
   Linking,
   Switch,
+  Modal,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -68,6 +69,9 @@ export default function SettingsScreen() {
   const [passkeyInput, setPasskeyInput] = useState(state.safetyPasskey);
   const [duressInput, setDuressInput] = useState(state.duressPasskey);
   const [testSMSInput, setTestSMSInput] = useState('SOS ALERT | LAT:12.9716 | LNG:77.5946');
+  const [deleteEvidenceVisible, setDeleteEvidenceVisible] = useState(false);
+  const [deletePasskey, setDeletePasskey] = useState('');
+  const [deletingEvidence, setDeletingEvidence] = useState(false);
 
   function saveSMSNumber() {
     dispatch({ type: 'SET_SMS_NUMBER', payload: smsInput });
@@ -150,13 +154,36 @@ export default function SettingsScreen() {
   }
 
   function clearEvidenceVault() {
-    Alert.alert('Clear Evidence Vault', 'Permanently delete all local recordings and location timelines?', [
-      { text: 'Cancel', style: 'cancel' },
-      { text: 'Delete', style: 'destructive', onPress: async () => {
-        await EvidenceService.clear();
-        dispatch({ type: 'SET_EVIDENCE_VAULT', payload: [] });
-      } },
-    ]);
+    if (!state.safetyPasskey) {
+      Alert.alert('Passkey Required', 'Save your I’m Safe passkey before managing protected evidence.');
+      return;
+    }
+    setDeletePasskey('');
+    setDeleteEvidenceVisible(true);
+  }
+
+  async function confirmEvidenceDeletion() {
+    const isDuress = Boolean(state.duressPasskey && deletePasskey === state.duressPasskey);
+    if (!isDuress && deletePasskey !== state.safetyPasskey) {
+      Alert.alert('Incorrect Passkey', 'Evidence was not changed.');
+      return;
+    }
+    setDeletingEvidence(true);
+    try {
+      if (isDuress) {
+        await CommunityAlertService.deleteEvidence({ serverUrl: state.alertServerUrl, ownerToken: state.expoPushToken, duress: true }).catch(() => null);
+      } else {
+        await CommunityAlertService.deleteEvidence({ serverUrl: state.alertServerUrl, ownerToken: state.expoPushToken, duress: false });
+      }
+      await EvidenceService.clear();
+      dispatch({ type: 'SET_EVIDENCE_VAULT', payload: [] });
+      setDeleteEvidenceVisible(false);
+      Alert.alert('Evidence Vault Cleared', 'All evidence has been removed from this phone.');
+    } catch (error) {
+      Alert.alert('Deletion Not Completed', `The protected backup could not be deleted, so local evidence was kept. ${error.message || ''}`);
+    } finally {
+      setDeletingEvidence(false);
+    }
   }
 
   return (
@@ -190,12 +217,12 @@ export default function SettingsScreen() {
             <View style={[styles.settingIconBg, { backgroundColor: '#ff910022' }]}><Ionicons name="lock-closed" size={16} color="#ff9100" /></View>
             <View style={styles.settingInfo}>
               <Text style={styles.settingLabel}>Consent-based emergency evidence</Text>
-              <Text style={styles.helperText}>When enabled, SOS visibly records up to 30 seconds of audio and a location timeline on this phone only.</Text>
+              <Text style={styles.helperText}>When enabled, SOS visibly records up to 30 seconds of audio and a location timeline, then backs it up to your configured server.</Text>
               <Text style={styles.settingValue}>{state.evidenceVault.length} evidence session{state.evidenceVault.length === 1 ? '' : 's'} stored</Text>
               {state.evidenceVault.slice(0, 3).map(item => (
                 <TouchableOpacity key={item.id} style={styles.evidenceRow} onPress={() => playEvidence(item.audioUri)} disabled={!item.audioUri}>
                   <Ionicons name={item.audioUri ? 'play-circle' : 'location'} size={18} color="#ff9100" />
-                  <Text style={styles.evidenceText}>{new Date(item.startedAt).toLocaleString()} · {item.locations?.length || 0} locations</Text>
+                  <Text style={styles.evidenceText}>{new Date(item.startedAt).toLocaleString()} · {item.locations?.length || 0} locations · {item.backupStatus === 'backed_up' ? 'Backed up' : item.backupStatus === 'syncing' ? 'Syncing' : 'Local only'}</Text>
                 </TouchableOpacity>
               ))}
               {state.evidenceVault.length > 0 && <TouchableOpacity style={styles.clearEvidenceBtn} onPress={clearEvidenceVault}><Text style={styles.clearEvidenceText}>Delete all evidence</Text></TouchableOpacity>}
@@ -384,6 +411,23 @@ export default function SettingsScreen() {
         </View>
 
       </ScrollView>
+      <Modal visible={deleteEvidenceVisible} transparent animationType="fade" onRequestClose={() => !deletingEvidence && setDeleteEvidenceVisible(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.deleteCard}>
+            <Ionicons name="shield-checkmark" size={32} color="#ff9100" />
+            <Text style={styles.deleteTitle}>Unlock Evidence Deletion</Text>
+            <Text style={styles.deleteHelp}>Enter your saved passkey to delete the vault. Your duress passkey makes the vault appear empty while retaining its protected server copy.</Text>
+            <TextInput style={styles.deleteInput} value={deletePasskey}
+              onChangeText={text => setDeletePasskey(text.replace(/\D/g, '').slice(0, 6))}
+              placeholder="4–6 digit passkey" placeholderTextColor={COLORS.muted}
+              keyboardType="number-pad" secureTextEntry maxLength={6} autoFocus />
+            <View style={styles.deleteActions}>
+              <TouchableOpacity style={styles.cancelDeleteBtn} disabled={deletingEvidence} onPress={() => setDeleteEvidenceVisible(false)}><Text style={styles.cancelDeleteText}>Cancel</Text></TouchableOpacity>
+              <TouchableOpacity style={styles.confirmDeleteBtn} disabled={deletingEvidence} onPress={confirmEvidenceDeletion}><Text style={styles.confirmDeleteText}>{deletingEvidence ? 'Checking…' : 'Delete vault'}</Text></TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -471,6 +515,16 @@ const styles = StyleSheet.create({
   evidenceText: { color: COLORS.muted, fontSize: 11, flex: 1 },
   clearEvidenceBtn: { marginTop: 12, alignSelf: 'flex-start', paddingVertical: 8 },
   clearEvidenceText: { color: COLORS.primary, fontSize: 12, fontWeight: '700' },
+  modalOverlay: { flex: 1, backgroundColor: '#000000cc', justifyContent: 'center', padding: 24 },
+  deleteCard: { backgroundColor: '#151515', borderRadius: 20, borderWidth: 1, borderColor: '#ff910055', padding: 24, alignItems: 'center' },
+  deleteTitle: { color: COLORS.text, fontSize: 20, fontWeight: '800', marginTop: 12 },
+  deleteHelp: { color: '#aaa', fontSize: 13, lineHeight: 19, textAlign: 'center', marginTop: 8 },
+  deleteInput: { width: '100%', backgroundColor: COLORS.input, borderRadius: 12, borderWidth: 1, borderColor: '#444', color: COLORS.text, fontSize: 22, letterSpacing: 8, textAlign: 'center', padding: 14, marginTop: 20 },
+  deleteActions: { width: '100%', flexDirection: 'row', gap: 12, marginTop: 20 },
+  cancelDeleteBtn: { flex: 1, minHeight: 48, alignItems: 'center', justifyContent: 'center', borderRadius: 12, borderWidth: 1, borderColor: '#444' },
+  cancelDeleteText: { color: COLORS.text, fontWeight: '700' },
+  confirmDeleteBtn: { flex: 1, minHeight: 48, alignItems: 'center', justifyContent: 'center', borderRadius: 12, backgroundColor: COLORS.primary },
+  confirmDeleteText: { color: '#fff', fontWeight: '800' },
 
   appInfo: { alignItems: 'center', paddingTop: 8, gap: 4 },
   appInfoText: { fontSize: 13, color: COLORS.muted },

@@ -16,6 +16,7 @@ GoogleService-Info.plist
 # Local broadcast server state
 server/registered-tokens.json
 server/broadcast-alerts.json
+server/evidence-vault/
 
 # Local environment
 .env

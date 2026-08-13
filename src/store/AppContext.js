@@ -114,6 +114,7 @@ function reducer(state, action) {
     case 'SET_EVIDENCE_CONSENT': return { ...state, evidenceConsent: action.payload };
     case 'SET_EVIDENCE_VAULT': return { ...state, evidenceVault: action.payload };
     case 'ADD_EVIDENCE': return { ...state, evidenceVault: [action.payload, ...state.evidenceVault].slice(0, 20) };
+    case 'UPDATE_EVIDENCE': return { ...state, evidenceVault: state.evidenceVault.map(item => item.id === action.payload.id ? { ...item, ...action.payload } : item) };
     case 'UPDATE_REMOTE_ALERT':
       return { ...state, remoteAlerts: state.remoteAlerts.map(a => a.alertId === action.payload.alertId ? { ...a, ...action.payload } : a) };
     case 'RESOLVE_REMOTE_ALERT':
