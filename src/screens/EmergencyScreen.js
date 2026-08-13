@@ -28,10 +28,10 @@ import { EvidenceService } from '../services/EvidenceService';
 import { t } from '../utils/i18n';
 
 const COLORS = {
-  bg: '#0d0000',
-  card: '#1a0000',
-  border: '#3d0000',
-  primary: '#ff1744',
+  bg: '#160B13',
+  card: '#25121C',
+  border: '#5B2635',
+  primary: '#FF4D5E',
   text: '#ffffff',
   muted: '#ff8a80',
 };
@@ -280,7 +280,7 @@ export default function EmergencyScreen() {
 
   const bgColor = flashAnim.interpolate({
     inputRange: [0, 1],
-    outputRange: ['#0d0000', '#1a0000'],
+    outputRange: ['#160B13', '#25121C'],
   });
 
   const lat = state.currentLocation?.latitude;
@@ -295,7 +295,7 @@ export default function EmergencyScreen() {
 
   return (
     <Animated.View style={[styles.container, { backgroundColor: bgColor }]}>
-      <StatusBar barStyle="light-content" backgroundColor="#0d0000" />
+      <StatusBar barStyle="light-content" backgroundColor="#160B13" />
       <SafeAreaView style={{ flex: 1 }}>
         <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
 

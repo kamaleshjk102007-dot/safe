@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "SafeGuard",
-    "slug": "safeguard",
+    "name": "RESQ 360",
+    "slug": "resq-360",
     "version": "1.0.1",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -9,14 +9,14 @@
     "splash": {
       "image": "./assets/splash.png",
       "resizeMode": "contain",
-      "backgroundColor": "#0a0a0a"
+      "backgroundColor": "#06131F"
     },
     "android": {
       "googleServicesFile": "./google-services.json",
       "usesCleartextTraffic": true,
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#0a0a0a"
+        "backgroundColor": "#06131F"
       },
       "package": "com.safeguard.app",
       "permissions": [
@@ -38,15 +38,15 @@
       [
         "expo-location",
         {
-          "locationAlwaysAndWhenInUsePermission": "SafeGuard needs your location to show it in emergency alerts.",
-          "locationAlwaysPermission": "SafeGuard needs background location access for emergency tracking."
+          "locationAlwaysAndWhenInUsePermission": "RESQ 360 needs your location to show it in emergency alerts.",
+          "locationAlwaysPermission": "RESQ 360 needs background location access for emergency tracking."
         }
       ],
       [
         "expo-notifications",
         {
           "icon": "./assets/notification-icon.png",
-          "color": "#ff1744",
+          "color": "#00C2A8",
           "sounds": []
         }
       ],

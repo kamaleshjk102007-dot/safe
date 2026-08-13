@@ -39,7 +39,7 @@ export const PermissionsService = {
         console.warn('[Permissions] Denied:', denied);
         Alert.alert(
           'Permissions Required',
-          `SafeGuard needs the following permissions for emergency detection:\n\n${denied
+          `RESQ 360 needs the following permissions for emergency detection:\n\n${denied
             .map(p => p.split('.').pop())
             .join(', ')}\n\nPlease grant these in Settings.`,
           [{ text: 'OK' }]

@@ -17,12 +17,12 @@ import { Ionicons } from '@expo/vector-icons';
 import { useAppContext } from '../store/AppContext';
 
 const COLORS = {
-  bg: '#0a0a0a',
-  card: '#111111',
-  border: '#1e1e1e',
-  primary: '#ff1744',
+  bg: '#06131F',
+  card: '#0C2233',
+  border: '#1C4057',
+  primary: '#00C2A8',
   text: '#ffffff',
-  muted: '#666',
+  muted: '#91A9B8',
   input: '#1a1a1a',
 };
 
@@ -90,7 +90,7 @@ export default function ContactsScreen() {
   }
 
   function renderContact({ item, index }) {
-    const colors = ['#ff1744', '#ff9100', '#00e676', '#448aff', '#e040fb'];
+    const colors = ['#00C2A8', '#FFB020', '#36D399', '#4D9FFF', '#9B8AFB'];
     const color = colors[index % colors.length];
     const initials = item.name
       .split(' ')

@@ -22,12 +22,12 @@ import { Audio } from 'expo-av';
 import { EvidenceService } from '../services/EvidenceService';
 
 const COLORS = {
-  bg: '#0a0a0a',
-  card: '#111111',
-  border: '#1e1e1e',
-  primary: '#ff1744',
+  bg: '#06131F',
+  card: '#0C2233',
+  border: '#1C4057',
+  primary: '#00C2A8',
   text: '#ffffff',
-  muted: '#666',
+  muted: '#91A9B8',
   green: '#00e676',
   input: '#1a1a1a',
 };
@@ -122,10 +122,10 @@ export default function SettingsScreen() {
       await CommunityAlertService.registerDevice({
         serverUrl: trimmed,
         pushToken,
-        label: 'SafeGuard User',
+        label: 'RESQ 360 User',
         location: state.currentLocation,
       });
-      Alert.alert('Broadcast Enabled', 'This phone is registered to receive SOS alerts from other SafeGuard users.');
+      Alert.alert('Broadcast Enabled', 'This phone is registered to receive SOS alerts from other RESQ 360 users.');
     } catch (error) {
       Alert.alert('Registration Incomplete', error.message || 'Could not register this phone yet.');
     }
@@ -190,7 +190,7 @@ export default function SettingsScreen() {
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
         <Text style={styles.title}>Settings</Text>
-        <Text style={styles.subtitle}>SafeGuard Configuration</Text>
+        <Text style={styles.subtitle}>RESQ 360 CONTROL CENTER</Text>
       </View>
 
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scroll}>
@@ -405,8 +405,8 @@ export default function SettingsScreen() {
 
         {/* App Info */}
         <View style={styles.appInfo}>
-          <Text style={styles.appInfoText}>SafeGuard v1.0.1</Text>
-          <Text style={styles.appInfoText}>Women Safety System</Text>
+          <Text style={styles.appInfoText}>RESQ 360 v1.0.1</Text>
+          <Text style={styles.appInfoText}>Personal Emergency Response</Text>
           <Text style={styles.appInfoSubtext}>App-only Mode - No Hardware Required</Text>
         </View>
 

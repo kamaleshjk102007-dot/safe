@@ -14,12 +14,12 @@ import * as Location from 'expo-location';
 import { useAppContext } from '../store/AppContext';
 
 const COLORS = {
-  bg: '#0a0a0a',
-  card: '#111111',
-  border: '#1e1e1e',
-  primary: '#ff1744',
+  bg: '#06131F',
+  card: '#0C2233',
+  border: '#1C4057',
+  primary: '#00C2A8',
   text: '#ffffff',
-  muted: '#666',
+  muted: '#91A9B8',
 };
 
 function buildMapHTML(lat, lng, label = 'Emergency Location') {
@@ -33,14 +33,14 @@ function buildMapHTML(lat, lng, label = 'Emergency Location') {
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { background: #0a0a0a; }
+    body { background: #06131F; }
     #map { width: 100vw; height: 100vh; }
     .custom-icon {
-      background: #ff1744;
+      background: #00C2A8;
       border-radius: 50%;
       width: 20px; height: 20px;
       border: 3px solid #fff;
-      box-shadow: 0 0 15px #ff1744aa;
+      box-shadow: 0 0 15px #00C2A8aa;
     }
   </style>
 </head>
@@ -72,8 +72,8 @@ function buildMapHTML(lat, lng, label = 'Emergency Location') {
 
     // Accuracy circle
     L.circle([${lat}, ${lng}], {
-      color: '#ff1744',
-      fillColor: '#ff174420',
+      color: '#00C2A8',
+      fillColor: '#00C2A820',
       fillOpacity: 0.3,
       radius: 50,
     }).addTo(map);
@@ -185,7 +185,7 @@ export default function MapScreen() {
         <WebView
           ref={webviewRef}
           source={{ html: buildMapHTML(lat, lng, isSOS ? 'SOS LOCATION' : 'My Location') }}
-          style={{ flex: 1, backgroundColor: '#0a0a0a' }}
+          style={{ flex: 1, backgroundColor: '#06131F' }}
           onLoad={() => setLoading(false)}
           javaScriptEnabled
           scrollEnabled={false}

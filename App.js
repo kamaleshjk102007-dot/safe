@@ -182,7 +182,7 @@ function AppInner() {
         await CommunityAlertService.registerDevice({
           serverUrl: state.alertServerUrl,
           pushToken,
-          label: 'SafeGuard User',
+          label: 'RESQ 360 User',
           location: state.currentLocation,
         });
       } catch (error) {
@@ -244,7 +244,7 @@ function AppInner() {
 
   return (
     <NavigationContainer ref={navigationRef}>
-      <StatusBar barStyle="light-content" backgroundColor="#0a0a0a" />
+      <StatusBar barStyle="light-content" backgroundColor="#06131F" />
       <AppNavigator />
     </NavigationContainer>
   );

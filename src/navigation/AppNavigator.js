@@ -16,13 +16,13 @@ const Tab = createBottomTabNavigator();
 const Stack = createStackNavigator();
 
 const COLORS = {
-  bg: '#0a0a0a',
+  bg: '#06131F',
   card: '#141414',
-  border: '#1e1e1e',
-  primary: '#ff1744',
+  border: '#1C4057',
+  primary: '#00C2A8',
   text: '#ffffff',
-  muted: '#666',
-  active: '#ff1744',
+  muted: '#78909C',
+  active: '#00C2A8',
 };
 
 function TabNavigator() {

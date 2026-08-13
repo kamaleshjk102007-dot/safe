@@ -24,15 +24,15 @@ import { normalizeDisplayName } from '../utils/displayName';
 import { t } from '../utils/i18n';
 
 const COLORS = {
-  bg: '#0a0a0a',
-  card: '#111111',
-  border: '#1e1e1e',
-  primary: '#ff1744',
-  green: '#00e676',
-  orange: '#ff9100',
-  text: '#ffffff',
-  muted: '#888',
-  subtext: '#555',
+  bg: '#06131F',
+  card: '#0C2233',
+  border: '#1C4057',
+  primary: '#00C2A8',
+  green: '#36D399',
+  orange: '#FFB020',
+  text: '#F4FAFC',
+  muted: '#91A9B8',
+  subtext: '#607D8B',
 };
 
 export default function HomeScreen() {
@@ -159,8 +159,11 @@ export default function HomeScreen() {
       {/* Header */}
       <View style={styles.header}>
         <View>
-          <Text style={styles.appName}>SafeGuard</Text>
-          <Text style={styles.tagline}>Women Safety System</Text>
+          <View style={styles.brandRow}>
+            <View style={styles.brandMark}><Ionicons name="shield-checkmark" size={18} color="#06131F" /></View>
+            <Text style={styles.appName}>RESQ <Text style={styles.appNameAccent}>360</Text></Text>
+          </View>
+          <Text style={styles.tagline}>PERSONAL EMERGENCY RESPONSE</Text>
         </View>
         <TouchableOpacity style={styles.settingsBtn} onPress={() => navigation.navigate('Settings')}>
           <Ionicons name="settings-outline" size={22} color={COLORS.muted} />
@@ -257,7 +260,10 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: COLORS.border,
   },
-  appName: { fontSize: 22, fontWeight: '800', color: COLORS.text, letterSpacing: -0.5 },
+  brandRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  brandMark: { width: 32, height: 32, borderRadius: 10, backgroundColor: COLORS.primary, alignItems: 'center', justifyContent: 'center' },
+  appName: { fontSize: 22, fontWeight: '800', color: COLORS.text, letterSpacing: 0.2 },
+  appNameAccent: { color: COLORS.primary },
   tagline: { fontSize: 11, color: COLORS.muted, marginTop: 1, letterSpacing: 1 },
   settingsBtn: { padding: 8 },
 
@@ -332,7 +338,7 @@ const styles = StyleSheet.create({
     height: 240,
     borderRadius: 120,
     borderWidth: 1,
-    borderColor: '#ff174415',
+    borderColor: '#00C2A822',
     alignSelf: 'center',
   },
   sosRing2: {
@@ -342,7 +348,7 @@ const styles = StyleSheet.create({
     height: 200,
     borderRadius: 100,
     borderWidth: 1,
-    borderColor: '#ff174425',
+    borderColor: '#00C2A838',
     alignSelf: 'center',
   },
   sosRing1: {
@@ -352,7 +358,7 @@ const styles = StyleSheet.create({
     height: 160,
     borderRadius: 80,
     borderWidth: 1,
-    borderColor: '#ff174440',
+    borderColor: '#00C2A855',
     alignSelf: 'center',
   },
   sosButton: {

@@ -14,12 +14,12 @@ import { useAppContext } from '../store/AppContext';
 import { normalizeDisplayName } from '../utils/displayName';
 
 const COLORS = {
-  bg: '#0a0a0a',
-  card: '#111111',
-  border: '#1e1e1e',
-  primary: '#ff1744',
+  bg: '#06131F',
+  card: '#0C2233',
+  border: '#1C4057',
+  primary: '#00C2A8',
   text: '#ffffff',
-  muted: '#666',
+  muted: '#91A9B8',
   green: '#00e676',
   orange: '#ff9100',
   blue: '#448aff',

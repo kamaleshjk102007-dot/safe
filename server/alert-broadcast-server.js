@@ -147,7 +147,7 @@ function json(res, statusCode, payload) {
 const server = http.createServer(async (req, res) => {
   try {
     if (req.method === 'GET' && req.url === '/health') {
-      return json(res, 200, { ok: true, service: 'SafeGuard broadcast server' });
+      return json(res, 200, { ok: true, service: 'RESQ 360 broadcast server' });
     }
 
     if (req.method === 'GET' && req.url.startsWith('/alerts')) {
@@ -179,7 +179,7 @@ const server = http.createServer(async (req, res) => {
         const tokens = loadTokens().filter((entry) => entry.token !== body.token);
         tokens.push({
           token: body.token,
-          label: String(body.label || 'SafeGuard User').slice(0, 80),
+          label: String(body.label || 'RESQ 360 User').slice(0, 80),
           platform: body.platform || 'unknown',
           updatedAt: new Date().toISOString(),
           lat: validateCoordinate(body.lat, -90, 90) ? Number(body.lat) : null,
@@ -413,7 +413,7 @@ const server = http.createServer(async (req, res) => {
     // the listening socket intermittently after boot, which can *also*
     // masquerade as "no open ports" on Render if it happens during the
     // health-check window.
-    console.error('[SafeGuard] Unhandled request error:', error);
+    console.error('[RESQ 360] Unhandled request error:', error);
     if (!res.headersSent) {
       json(res, 500, { error: 'Internal server error' });
     }
@@ -424,12 +424,12 @@ const server = http.createServer(async (req, res) => {
 // explicitly in the logs instead of failing silently — this makes any
 // future startup problem immediately diagnosable from Render's log tab.
 server.on('error', (error) => {
-  console.error('[SafeGuard] Server failed to start:', error);
+  console.error('[RESQ 360] Server failed to start:', error);
   process.exit(1);
 });
 
 server.listen(PORT, HOST, () => {
-  console.log(`SafeGuard broadcast server listening on http://${HOST}:${PORT}`);
+  console.log(`RESQ 360 broadcast server listening on http://${HOST}:${PORT}`);
 });
 
 process.on('uncaughtException', (err) => {

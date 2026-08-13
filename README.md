@@ -1,4 +1,4 @@
-# SafeGuard — Women Safety System (App-Only, No Hardware)
+# RESQ 360 — Personal Emergency Response System
 
 This build removes the ESP32 / BLE physical panic-button dependency. SOS alerts
 are triggered entirely from the phone: a tap on the SOS button, or an incoming
