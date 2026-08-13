@@ -12,12 +12,15 @@ import {
   Modal,
   TextInput,
   Alert,
+  NativeModules,
+  AppState,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import * as Haptics from 'expo-haptics';
 import * as KeepAwake from 'expo-keep-awake';
+import * as Location from 'expo-location';
 
 import { useAppContext } from '../store/AppContext';
 import { CommunityAlertService } from '../services/CommunityAlertService';
@@ -43,6 +46,9 @@ export default function EmergencyScreen() {
   const [passkeyVisible, setPasskeyVisible] = useState(false);
   const [passkeyEntry, setPasskeyEntry] = useState('');
   const [endingAlert, setEndingAlert] = useState(false);
+  const callAppState = useRef(AppState.currentState);
+  const callWasBackgrounded = useRef(false);
+  const nextCallPromptVisible = useRef(false);
 
   useEffect(() => {
     KeepAwake.activateKeepAwakeAsync().catch(() => {});
@@ -56,6 +62,86 @@ export default function EmergencyScreen() {
       KeepAwake.deactivateKeepAwake().catch(() => {});
     };
   }, []);
+
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (nextState) => {
+      const previousState = callAppState.current;
+      callAppState.current = nextState;
+
+      if (nextState === 'background' || nextState === 'inactive') {
+        callWasBackgrounded.current = true;
+        return;
+      }
+
+      if (
+        nextState === 'active' &&
+        previousState !== 'active' &&
+        callWasBackgrounded.current &&
+        state.sosActive &&
+        state.emergencyCallIndex >= 0 &&
+        !nextCallPromptVisible.current
+      ) {
+        callWasBackgrounded.current = false;
+        dispatch({ type: 'SET_DELIVERY_STATUS', payload: { call: 'attempted' } });
+        const nextIndex = state.emergencyCallIndex + 1;
+        const nextContact = state.contacts[nextIndex];
+
+        if (!nextContact?.phone) {
+          dispatch({ type: 'SET_EMERGENCY_CALL_INDEX', payload: -1 });
+          Alert.alert('All Contacts Attempted', 'There are no more emergency contacts to call. Your SOS remains active.');
+          return;
+        }
+
+        nextCallPromptVisible.current = true;
+        Alert.alert(
+          'Call Next Contact?',
+          `Call ${nextContact.name} at ${nextContact.phone}?`,
+          [
+            {
+              text: 'Stop Calling',
+              style: 'cancel',
+              onPress: () => {
+                nextCallPromptVisible.current = false;
+                dispatch({ type: 'SET_EMERGENCY_CALL_INDEX', payload: -1 });
+              },
+            },
+            {
+              text: 'Call Next',
+              onPress: () => {
+                nextCallPromptVisible.current = false;
+                dispatch({ type: 'SET_EMERGENCY_CALL_INDEX', payload: nextIndex });
+                NativeModules.EmergencyCall?.callNumbers([nextContact.phone]).catch((error) => {
+                  Alert.alert('Call Failed', error.message || `Could not call ${nextContact.name}.`);
+                });
+              },
+            },
+          ],
+          { cancelable: false },
+        );
+      }
+    });
+
+    return () => subscription.remove();
+  }, [state.sosActive, state.emergencyCallIndex, state.contacts, dispatch]);
+
+  useEffect(() => {
+    if (!state.sosActive || !state.activeAlertId || !state.alertServerUrl) return undefined;
+    let subscription;
+    Location.watchPositionAsync(
+      { accuracy: Location.Accuracy.High, timeInterval: 10000, distanceInterval: 10 },
+      loc => {
+        const location = { latitude: loc.coords.latitude, longitude: loc.coords.longitude, accuracy: loc.coords.accuracy };
+        dispatch({ type: 'SET_LOCATION', payload: location });
+        CommunityAlertService.updateSOSLocation({ serverUrl: state.alertServerUrl, alertId: state.activeAlertId, senderToken: state.expoPushToken, location }).catch(() => {});
+      },
+    ).then(value => { subscription = value; }).catch(() => {});
+    const timer = setInterval(() => {
+      CommunityAlertService.getAlertStatus({ serverUrl: state.alertServerUrl, alertId: state.activeAlertId })
+        .then(result => dispatch({ type: 'SET_DELIVERY_STATUS', payload: { acknowledgements: result.alert?.acknowledgements?.length || 0 } }))
+        .catch(() => {});
+    }, 5000);
+    return () => { subscription?.remove?.(); clearInterval(timer); };
+  }, [state.sosActive, state.activeAlertId, state.alertServerUrl, state.expoPushToken, dispatch]);
 
   function startAnimations() {
     // Flash background
@@ -95,6 +181,14 @@ export default function EmergencyScreen() {
   }
 
   async function confirmSafe() {
+    if (state.duressPasskey && passkeyEntry === state.duressPasskey) {
+      NativeModules.EmergencyCall?.cancelCalls();
+      Vibration.cancel();
+      dispatch({ type: 'DISMISS_SOS' });
+      setPasskeyVisible(false);
+      navigation.goBack();
+      return;
+    }
     if (passkeyEntry !== state.safetyPasskey) {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => {});
       Alert.alert('Incorrect Passkey', 'The SOS remains active. Try again.');
@@ -115,6 +209,7 @@ export default function EmergencyScreen() {
       return;
     }
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+    NativeModules.EmergencyCall?.cancelCalls();
     Vibration.cancel();
     dispatch({ type: 'DISMISS_SOS' });
     setDismissed(true);
@@ -167,6 +262,13 @@ export default function EmergencyScreen() {
           </Animated.View>
 
           {/* Source */}
+          <Animated.View style={[styles.sourceCard, { opacity: opacityAnim }]}>
+            <Text style={styles.cardLabel}>DELIVERY STATUS</Text>
+            <Text style={styles.sourceText}>Community: {state.deliveryStatus.community} ({state.deliveryStatus.recipients || 0})</Text>
+            <Text style={styles.sourceText}>SMS: {state.deliveryStatus.sms} ({state.deliveryStatus.smsSent || 0})</Text>
+            <Text style={styles.sourceText}>Call: {state.deliveryStatus.call}</Text>
+            <Text style={styles.sourceText}>Responders: {state.deliveryStatus.acknowledgements || 0}</Text>
+          </Animated.View>
           <Animated.View style={[styles.sourceCard, { opacity: opacityAnim }]}>
             <Text style={styles.cardLabel}>TRIGGER SOURCE</Text>
             <Text style={styles.sourceText}>{sourceLabel}</Text>

@@ -9,29 +9,33 @@ import com.facebook.react.bridge.Promise
 import com.facebook.react.bridge.ReactApplicationContext
 import com.facebook.react.bridge.ReactContextBaseJavaModule
 import com.facebook.react.bridge.ReactMethod
+import com.facebook.react.bridge.ReadableArray
 
 class EmergencyCallModule(private val context: ReactApplicationContext) : ReactContextBaseJavaModule(context) {
   override fun getName(): String = "EmergencyCall"
 
   @ReactMethod
-  fun callNumber(rawNumber: String, promise: Promise) {
-    val number = rawNumber.filter { it.isDigit() || it == '+' }
-    if (number.isBlank()) {
-      promise.reject("INVALID_NUMBER", "Emergency contact has no valid phone number")
-      return
-    }
+  fun callNumbers(rawNumbers: ReadableArray, promise: Promise) {
     if (ContextCompat.checkSelfPermission(context, Manifest.permission.CALL_PHONE) != PackageManager.PERMISSION_GRANTED) {
       promise.reject("CALL_PERMISSION", "Phone-call permission is not granted")
       return
     }
+    val number = (0 until rawNumbers.size()).mapNotNull { rawNumbers.getString(it) }
+      .map { it.filter { ch -> ch.isDigit() || ch == '+' } }.firstOrNull { it.isNotBlank() }
+    if (number == null) {
+      promise.reject("NO_CONTACTS", "No valid emergency contact number is saved")
+      return
+    }
     try {
-      val intent = Intent(Intent.ACTION_CALL, Uri.parse("tel:$number")).apply {
-        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-      }
-      context.startActivity(intent)
-      promise.resolve(true)
+      context.startActivity(Intent(Intent.ACTION_CALL, Uri.parse("tel:$number")).apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) })
+      promise.resolve(1)
     } catch (error: Exception) {
       promise.reject("CALL_FAILED", error.message, error)
     }
+  }
+
+  @ReactMethod
+  fun cancelCalls() {
+    // The app never ends a cellular call; this only preserves the JS API.
   }
 }

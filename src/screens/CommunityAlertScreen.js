@@ -8,6 +8,7 @@ import {
   Linking,
   ScrollView,
   StatusBar,
+  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -16,6 +17,7 @@ import * as Haptics from 'expo-haptics';
 
 import { useAppContext } from '../store/AppContext';
 import { normalizeDisplayName } from '../utils/displayName';
+import { CommunityAlertService } from '../services/CommunityAlertService';
 
 // Deliberately distinct from EmergencyScreen's red — this is "someone else needs
 // help", not "I need help", and should never be visually confusable with it.
@@ -49,6 +51,7 @@ export default function CommunityAlertScreen() {
   const alert = state.remoteAlerts[0];
   const queuedCount = state.remoteAlerts.length - 1;
   const senderName = normalizeDisplayName(alert?.senderName);
+  const acknowledged = alert?.acknowledgements?.some(item => item.token === state.expoPushToken);
 
   useEffect(() => {
     // Vibration lives ONLY here, scoped to this screen instance — never
@@ -101,6 +104,21 @@ export default function CommunityAlertScreen() {
     Linking.openURL(`geo:${lat},${lng}?q=${lat},${lng}(Community SOS)`);
   }
 
+  async function acknowledgeAlert() {
+    try {
+      const result = await CommunityAlertService.acknowledgeSOS({
+        serverUrl: state.alertServerUrl,
+        alertId: alert.alertId,
+        responderToken: state.expoPushToken,
+        responderName: normalizeDisplayName(state.displayName),
+      });
+      dispatch({ type: 'UPDATE_REMOTE_ALERT', payload: { alertId: alert.alertId, acknowledgements: result.acknowledgements || [] } });
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+    } catch (error) {
+      Alert.alert('Could Not Acknowledge', error.message || 'Try again.');
+    }
+  }
+
   if (!alert) {
     return <View style={{ flex: 1, backgroundColor: COLORS.bg }} />;
   }
@@ -131,6 +149,11 @@ export default function CommunityAlertScreen() {
               <Text style={styles.senderName}>{senderName}</Text>
             </View>
           </View>
+
+          <TouchableOpacity style={[styles.respondBtn, acknowledged && styles.respondBtnDone]} onPress={acknowledgeAlert} disabled={acknowledged}>
+            <Ionicons name={acknowledged ? 'checkmark-circle' : 'navigate'} size={20} color="#fff" />
+            <Text style={styles.respondText}>{acknowledged ? 'I’m Responding' : 'I Can Help'}</Text>
+          </TouchableOpacity>
 
           <View style={styles.card}>
             <Text style={styles.cardLabel}>REPORTED</Text>
@@ -244,6 +267,9 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#00c85355',
   },
+  respondBtn: { backgroundColor: '#0277bd', borderRadius: 14, padding: 16, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, marginTop: 12 },
+  respondBtnDone: { backgroundColor: '#00a843' },
+  respondText: { color: '#fff', fontSize: 14, fontWeight: '800' },
   dismissText: { color: '#00c853', fontSize: 14, fontWeight: '700', letterSpacing: 0.5 },
 
   note: {

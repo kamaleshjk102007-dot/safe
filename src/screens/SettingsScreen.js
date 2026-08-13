@@ -63,6 +63,7 @@ export default function SettingsScreen() {
   const [serverUrlInput, setServerUrlInput] = useState(state.alertServerUrl);
   const [displayNameInput, setDisplayNameInput] = useState(state.displayName);
   const [passkeyInput, setPasskeyInput] = useState(state.safetyPasskey);
+  const [duressInput, setDuressInput] = useState(state.duressPasskey);
   const [testSMSInput, setTestSMSInput] = useState('SOS ALERT | LAT:12.9716 | LNG:77.5946');
 
   function saveSMSNumber() {
@@ -88,6 +89,17 @@ export default function SettingsScreen() {
     Alert.alert('Safety Passkey Saved', 'This passkey is now required to end your SOS alert.');
   }
 
+  function saveDuressPasskey() {
+    const value = duressInput.replace(/\D/g, '').slice(0, 6);
+    if (value.length < 4 || value === state.safetyPasskey) {
+      Alert.alert('Invalid Duress Passkey', 'Use a different 4 to 6 digit passkey.');
+      return;
+    }
+    dispatch({ type: 'SET_DURESS_PASSKEY', payload: value });
+    setDuressInput(value);
+    Alert.alert('Duress Passkey Saved', 'This code will close the alert locally while silently keeping help active.');
+  }
+
   async function saveServerUrl() {
     const trimmed = serverUrlInput.trim();
     dispatch({ type: 'SET_ALERT_SERVER_URL', payload: trimmed });
@@ -104,6 +116,7 @@ export default function SettingsScreen() {
         serverUrl: trimmed,
         pushToken,
         label: 'SafeGuard User',
+        location: state.currentLocation,
       });
       Alert.alert('Broadcast Enabled', 'This phone is registered to receive SOS alerts from other SafeGuard users.');
     } catch (error) {
@@ -181,6 +194,16 @@ export default function SettingsScreen() {
               <TouchableOpacity style={styles.testBtn} onPress={saveSafetyPasskey}>
                 <Ionicons name="save" size={14} color="#fff" />
                 <Text style={styles.testBtnText}>Save Passkey</Text>
+              </TouchableOpacity>
+              <Text style={[styles.settingLabel, { marginTop: 16 }]}>Duress Passkey</Text>
+              <TextInput style={[styles.inlineInput, { marginTop: 6 }]} value={duressInput}
+                onChangeText={text => setDuressInput(text.replace(/\D/g, '').slice(0, 6))}
+                placeholder="Different 4–6 digit code" placeholderTextColor={COLORS.muted}
+                keyboardType="number-pad" secureTextEntry maxLength={6} />
+              <Text style={styles.helperText}>Appears to dismiss SOS locally but does not tell responders you are safe.</Text>
+              <TouchableOpacity style={styles.testBtn} onPress={saveDuressPasskey}>
+                <Ionicons name="eye-off" size={14} color="#fff" />
+                <Text style={styles.testBtnText}>Save Duress Code</Text>
               </TouchableOpacity>
             </View>
           </View>

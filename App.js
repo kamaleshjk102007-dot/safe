@@ -84,7 +84,13 @@ function AppInner() {
       const alertId = payload.alertId || `${payload.senderToken || 'unknown'}-${payload.timestamp || Date.now()}`;
 
       // De-dupe across push-notification delivery and poll-based delivery.
-      if (seenRemoteAlertIdsRef.current.has(alertId)) return;
+      if (seenRemoteAlertIdsRef.current.has(alertId)) {
+        dispatch({ type: 'UPDATE_REMOTE_ALERT', payload: {
+          alertId, lat: Number(payload.lat), lng: Number(payload.lng), accuracy: payload.accuracy,
+          locationUpdatedAt: payload.locationUpdatedAt, acknowledgements: payload.acknowledgements || [],
+        } });
+        return;
+      }
       seenRemoteAlertIdsRef.current.add(alertId);
 
       const remoteAlert = {
@@ -95,6 +101,9 @@ function AppInner() {
         timestamp: payload.timestamp || new Date().toISOString(),
         senderToken: payload.senderToken || '',
         senderName: normalizeDisplayName(payload.senderName),
+        accuracy: payload.accuracy,
+        locationUpdatedAt: payload.locationUpdatedAt,
+        acknowledgements: payload.acknowledgements || [],
       };
 
       dispatch({ type: 'ADD_REMOTE_ALERT', payload: remoteAlert });
@@ -174,6 +183,7 @@ function AppInner() {
           serverUrl: state.alertServerUrl,
           pushToken,
           label: 'SafeGuard User',
+          location: state.currentLocation,
         });
       } catch (error) {
         console.warn('[CommunityAlerts] Registration skipped:', error.message || error);
@@ -181,7 +191,7 @@ function AppInner() {
     }
 
     registerCurrentDevice();
-  }, [state.alertServerUrl, dispatch]);
+  }, [state.alertServerUrl, state.currentLocation, dispatch]);
 
   useEffect(() => {
     if (!state.alertServerUrl) return undefined;
@@ -203,6 +213,10 @@ function AppInner() {
 
           if (alert.safeResolved) {
             handleIncomingCommunityAlert({ remoteBroadcast: true, safeResolved: true, alertId: alert.targetAlertId, resolvedAt: alert.resolvedAt });
+            continue;
+          }
+          if (alert.locationUpdate) {
+            handleIncomingCommunityAlert({ remoteBroadcast: true, alertId: alert.targetAlertId, lat: alert.lat, lng: alert.lng, accuracy: alert.accuracy, locationUpdatedAt: alert.locationUpdatedAt });
             continue;
           }
 

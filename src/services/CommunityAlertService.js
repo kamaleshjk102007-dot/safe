@@ -93,7 +93,7 @@ class CommunityAlertServiceClass {
     }
   }
 
-  async registerDevice({ serverUrl, pushToken, label }) {
+  async registerDevice({ serverUrl, pushToken, label, location }) {
     const baseUrl = normalizeUrl(serverUrl);
     if (!baseUrl || !pushToken) return null;
 
@@ -101,6 +101,8 @@ class CommunityAlertServiceClass {
       token: pushToken,
       label,
       platform: Platform.OS,
+      lat: location?.latitude,
+      lng: location?.longitude,
     });
   }
 
@@ -115,6 +117,27 @@ class CommunityAlertServiceClass {
     const baseUrl = normalizeUrl(serverUrl);
     if (!baseUrl || !alertId) throw new Error('No active community alert to resolve');
     return postJson(`${baseUrl}/resolve-sos`, { alertId, senderToken });
+  }
+
+  async acknowledgeSOS({ serverUrl, alertId, responderToken, responderName }) {
+    const baseUrl = normalizeUrl(serverUrl);
+    return postJson(`${baseUrl}/acknowledge-sos`, { alertId, responderToken, responderName });
+  }
+
+  async updateSOSLocation({ serverUrl, alertId, senderToken, location }) {
+    const baseUrl = normalizeUrl(serverUrl);
+    return postJson(`${baseUrl}/update-sos-location`, {
+      alertId, senderToken, lat: location.latitude, lng: location.longitude, accuracy: location.accuracy,
+    });
+  }
+
+  async getAlertStatus({ serverUrl, alertId }) {
+    const baseUrl = normalizeUrl(serverUrl);
+    const response = await fetch(`${baseUrl}/alert-status?id=${encodeURIComponent(alertId)}`, {
+      headers: { ...(ALERT_API_KEY ? { 'X-SafeGuard-API-Key': ALERT_API_KEY } : {}) },
+    });
+    if (!response.ok) throw new Error(`${response.status} ${await response.text()}`);
+    return response.json();
   }
 
   async fetchAlerts({ serverUrl, since }) {

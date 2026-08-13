@@ -84,6 +84,7 @@ export default function HomeScreen() {
     Vibration.vibrate([0, 300, 100, 300, 100, 500]);
     dispatch({ type: 'SET_SOS_ACTIVE', payload: true });
     dispatch({ type: 'SET_TRIGGER_SOURCE', payload: 'MANUAL' });
+    dispatch({ type: 'SET_DELIVERY_STATUS', payload: { community: 'sending', sms: 'sending', call: 'calling', recipients: 0, smsSent: 0 } });
     dispatch({
       type: 'ADD_HISTORY_EVENT',
       payload: {
@@ -101,10 +102,28 @@ export default function HomeScreen() {
     }).catch(() => {});
     navigation.navigate('Emergency');
 
-    if (state.contacts[0]?.phone) {
-      NativeModules.EmergencyCall?.callNumber(state.contacts[0].phone).catch((error) => {
-        Alert.alert('Automatic Call Failed', error.message || 'Could not call the emergency contact.');
+    const firstContact = state.contacts[0];
+    if (firstContact?.phone) {
+      dispatch({ type: 'SET_EMERGENCY_CALL_INDEX', payload: 0 });
+      NativeModules.EmergencyCall?.callNumbers([firstContact.phone]).catch((error) => {
+        dispatch({ type: 'SET_DELIVERY_STATUS', payload: { call: 'failed' } });
+        dispatch({ type: 'SET_EMERGENCY_CALL_INDEX', payload: -1 });
+        Alert.alert('Automatic Call Failed', error.message || `Could not call ${firstContact.name}.`);
       });
+    } else {
+      dispatch({ type: 'SET_DELIVERY_STATUS', payload: { call: 'not-configured' } });
+    }
+
+    const contactNumbers = state.contacts.map(contact => contact.phone).filter(Boolean);
+    if (contactNumbers.length > 0) {
+      const lat = state.currentLocation?.latitude;
+      const lng = state.currentLocation?.longitude;
+      const mapLink = lat != null && lng != null ? `https://maps.google.com/?q=${lat},${lng}` : 'Location unavailable';
+      NativeModules.EmergencySms?.sendToAll(contactNumbers, `SOS! ${senderName} needs help. Location: ${mapLink}`)
+        .then(count => dispatch({ type: 'SET_DELIVERY_STATUS', payload: { sms: 'sent', smsSent: Number(count) || 0 } }))
+        .catch(() => dispatch({ type: 'SET_DELIVERY_STATUS', payload: { sms: 'failed' } }));
+    } else {
+      dispatch({ type: 'SET_DELIVERY_STATUS', payload: { sms: 'not-configured' } });
     }
 
     try {
@@ -120,7 +139,9 @@ export default function HomeScreen() {
         },
       });
       if (result?.alert?.id) dispatch({ type: 'SET_ACTIVE_ALERT_ID', payload: result.alert.id });
+      dispatch({ type: 'SET_DELIVERY_STATUS', payload: { community: 'sent', recipients: result?.recipients || 0 } });
     } catch (error) {
+      dispatch({ type: 'SET_DELIVERY_STATUS', payload: { community: 'failed' } });
       Alert.alert('Community Alert Failed', error.message || 'Other app users may not have received this SOS.');
     }
   }

@@ -17,6 +17,14 @@ const MAX_BODY_BYTES = 16 * 1024;
 const API_KEY = process.env.SAFEGUARD_ALERT_API_KEY || '';
 const MAX_SENDER_NAME_LENGTH = 40;
 const DEFAULT_SENDER_NAME = 'Someone';
+const ALERT_RADIUS_KM = Number(process.env.SAFEGUARD_ALERT_RADIUS_KM) || 10;
+
+function distanceKm(aLat, aLng, bLat, bLng) {
+  const rad = value => value * Math.PI / 180;
+  const dLat = rad(bLat - aLat); const dLng = rad(bLng - aLng);
+  const value = Math.sin(dLat / 2) ** 2 + Math.cos(rad(aLat)) * Math.cos(rad(bLat)) * Math.sin(dLng / 2) ** 2;
+  return 6371 * 2 * Math.atan2(Math.sqrt(value), Math.sqrt(1 - value));
+}
 
 function loadTokens() {
   try {
@@ -152,6 +160,8 @@ const server = http.createServer(async (req, res) => {
           label: String(body.label || 'SafeGuard User').slice(0, 80),
           platform: body.platform || 'unknown',
           updatedAt: new Date().toISOString(),
+          lat: validateCoordinate(body.lat, -90, 90) ? Number(body.lat) : null,
+          lng: validateCoordinate(body.lng, -180, 180) ? Number(body.lng) : null,
         });
         saveTokens(tokens);
         return json(res, 200, { ok: true, registered: body.token, total: tokens.length });
@@ -190,7 +200,13 @@ const server = http.createServer(async (req, res) => {
 
         // FIX: exclude the sender's own token from the push fan-out so the
         // person who triggered the SOS doesn't get notified about their own alert.
-        const recipientTokens = tokens.filter((entry) => entry.token !== senderToken);
+        const otherTokens = tokens.filter((entry) => entry.token !== senderToken);
+        const nearbyTokens = otherTokens.filter(entry =>
+          entry.lat !== null && entry.lng !== null && distanceKm(lat, lng, entry.lat, entry.lng) <= ALERT_RADIUS_KM
+        );
+        const recipientTokens = nearbyTokens.length > 0 ? nearbyTokens : otherTokens;
+        alert.delivery = { targeted: recipientTokens.length, radiusKm: ALERT_RADIUS_KM, mode: nearbyTokens.length ? 'nearby' : 'fallback-all' };
+        saveAlerts([alert, ...loadAlerts().filter(item => item.id !== alert.id)]);
 
         const messages = recipientTokens.map((entry) => ({
           to: entry.token,
@@ -216,6 +232,42 @@ const server = http.createServer(async (req, res) => {
       } catch (error) {
         return clientError(res, error);
       }
+    }
+
+    if (req.method === 'POST' && req.url === '/acknowledge-sos') {
+      try {
+        if (!isAuthorized(req)) return json(res, 401, { error: 'Unauthorized' });
+        const body = await readJson(req); const alerts = loadAlerts();
+        const index = alerts.findIndex(alert => alert.id === body.alertId);
+        if (index < 0) return json(res, 404, { error: 'Alert not found' });
+        const acknowledgement = { token: String(body.responderToken || ''), name: normalizeSenderName(body.responderName), at: new Date().toISOString() };
+        const current = Array.isArray(alerts[index].acknowledgements) ? alerts[index].acknowledgements : [];
+        alerts[index].acknowledgements = [...current.filter(item => item.token !== acknowledgement.token), acknowledgement];
+        saveAlerts(alerts);
+        return json(res, 200, { ok: true, acknowledgements: alerts[index].acknowledgements });
+      } catch (error) { return clientError(res, error); }
+    }
+
+    if (req.method === 'POST' && req.url === '/update-sos-location') {
+      try {
+        if (!isAuthorized(req)) return json(res, 401, { error: 'Unauthorized' });
+        const body = await readJson(req); const alerts = loadAlerts();
+        const index = alerts.findIndex(alert => alert.id === body.alertId);
+        if (index < 0) return json(res, 404, { error: 'Alert not found' });
+        if (alerts[index].senderToken !== body.senderToken) return json(res, 403, { error: 'Sender mismatch' });
+        if (!validateCoordinate(body.lat, -90, 90) || !validateCoordinate(body.lng, -180, 180)) return json(res, 400, { error: 'Invalid location' });
+        alerts[index] = { ...alerts[index], lat: Number(body.lat), lng: Number(body.lng), accuracy: Number(body.accuracy) || null, locationUpdatedAt: new Date().toISOString() };
+        const locationEvent = { id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, locationUpdate: true, targetAlertId: body.alertId, lat: alerts[index].lat, lng: alerts[index].lng, accuracy: alerts[index].accuracy, locationUpdatedAt: alerts[index].locationUpdatedAt };
+        saveAlerts([locationEvent, ...alerts]); return json(res, 200, { ok: true, alert: alerts[index] });
+      } catch (error) { return clientError(res, error); }
+    }
+
+    if (req.method === 'GET' && req.url.startsWith('/alert-status')) {
+      if (!isAuthorized(req)) return json(res, 401, { error: 'Unauthorized' });
+      const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+      const alert = loadAlerts().find(item => item.id === url.searchParams.get('id'));
+      if (!alert) return json(res, 404, { error: 'Alert not found' });
+      return json(res, 200, { ok: true, alert });
     }
 
     if (req.method === 'POST' && req.url === '/resolve-sos') {

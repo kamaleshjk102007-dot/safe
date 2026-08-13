@@ -28,6 +28,9 @@ const initialState = {
   displayName: '',
   safetyPasskey: '',
   activeAlertId: '',
+  emergencyCallIndex: -1,
+  duressPasskey: '',
+  deliveryStatus: { community: 'idle', sms: 'idle', call: 'idle', recipients: 0, smsSent: 0 },
 };
 
 function reducer(state, action) {
@@ -98,6 +101,14 @@ function reducer(state, action) {
       return { ...state, safetyPasskey: action.payload };
     case 'SET_ACTIVE_ALERT_ID':
       return { ...state, activeAlertId: action.payload || '' };
+    case 'SET_EMERGENCY_CALL_INDEX':
+      return { ...state, emergencyCallIndex: action.payload };
+    case 'SET_DURESS_PASSKEY':
+      return { ...state, duressPasskey: action.payload };
+    case 'SET_DELIVERY_STATUS':
+      return { ...state, deliveryStatus: { ...state.deliveryStatus, ...action.payload } };
+    case 'UPDATE_REMOTE_ALERT':
+      return { ...state, remoteAlerts: state.remoteAlerts.map(a => a.alertId === action.payload.alertId ? { ...a, ...action.payload } : a) };
     case 'RESOLVE_REMOTE_ALERT':
       return {
         ...state,
@@ -108,7 +119,7 @@ function reducer(state, action) {
         ),
       };
     case 'DISMISS_SOS':
-      return { ...state, sosActive: false, triggerSource: null, activeAlertId: '' };
+      return { ...state, sosActive: false, triggerSource: null, activeAlertId: '', emergencyCallIndex: -1, deliveryStatus: initialState.deliveryStatus };
     default:
       return state;
   }
@@ -137,7 +148,8 @@ export function AppProvider({ children }) {
     AsyncStorage.setItem('expoPushToken', state.expoPushToken || '');
     AsyncStorage.setItem('displayName', state.displayName || '');
     AsyncStorage.setItem('safetyPasskey', state.safetyPasskey || '');
-  }, [state.smsNumber, state.alertServerUrl, state.expoPushToken, state.displayName, state.safetyPasskey]);
+    AsyncStorage.setItem('duressPasskey', state.duressPasskey || '');
+  }, [state.smsNumber, state.alertServerUrl, state.expoPushToken, state.displayName, state.safetyPasskey, state.duressPasskey]);
 
   async function loadPersistedData() {
     try {
@@ -148,6 +160,7 @@ export function AppProvider({ children }) {
       const expoPushToken = await AsyncStorage.getItem('expoPushToken');
       const displayName = await AsyncStorage.getItem('displayName');
       const safetyPasskey = await AsyncStorage.getItem('safetyPasskey');
+      const duressPasskey = await AsyncStorage.getItem('duressPasskey');
 
       if (contacts) dispatch({ type: 'SET_CONTACTS', payload: JSON.parse(contacts) });
       if (history) dispatch({ type: 'SET_HISTORY', payload: JSON.parse(history) });
@@ -156,6 +169,7 @@ export function AppProvider({ children }) {
       if (expoPushToken) dispatch({ type: 'SET_EXPO_PUSH_TOKEN', payload: expoPushToken });
       if (displayName) dispatch({ type: 'SET_DISPLAY_NAME', payload: displayName });
       if (safetyPasskey) dispatch({ type: 'SET_SAFETY_PASSKEY', payload: safetyPasskey });
+      if (duressPasskey) dispatch({ type: 'SET_DURESS_PASSKEY', payload: duressPasskey });
     } catch (e) {
       console.error('[AppContext] Failed to load persisted data:', e);
     }
