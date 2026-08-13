@@ -16,6 +16,9 @@ import { useAppContext } from '../store/AppContext';
 import { SMSService } from '../services/SMSService';
 import { CommunityAlertService } from '../services/CommunityAlertService';
 import { normalizeDisplayName, MAX_DISPLAY_NAME_LENGTH } from '../utils/displayName';
+import { LANGUAGES } from '../utils/i18n';
+import { Audio } from 'expo-av';
+import { EvidenceService } from '../services/EvidenceService';
 
 const COLORS = {
   bg: '#0a0a0a',
@@ -138,6 +141,24 @@ export default function SettingsScreen() {
     Linking.openSettings();
   }
 
+  async function playEvidence(uri) {
+    if (!uri) return;
+    try {
+      const { sound } = await Audio.Sound.createAsync({ uri }, { shouldPlay: true });
+      sound.setOnPlaybackStatusUpdate(status => { if (status.didJustFinish) sound.unloadAsync(); });
+    } catch (error) { Alert.alert('Playback Failed', error.message || 'Could not play this evidence recording.'); }
+  }
+
+  function clearEvidenceVault() {
+    Alert.alert('Clear Evidence Vault', 'Permanently delete all local recordings and location timelines?', [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Delete', style: 'destructive', onPress: async () => {
+        await EvidenceService.clear();
+        dispatch({ type: 'SET_EVIDENCE_VAULT', payload: [] });
+      } },
+    ]);
+  }
+
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
@@ -146,6 +167,43 @@ export default function SettingsScreen() {
       </View>
 
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scroll}>
+
+        <Section title="Language / மொழி / भाषा">
+          <View style={[styles.settingRow, styles.settingRowLast]}>
+            <View style={styles.settingInfo}>
+              <Text style={styles.settingLabel}>Emergency Language</Text>
+              <View style={styles.languageRow}>
+                {LANGUAGES.map(item => (
+                  <TouchableOpacity key={item.code} style={[styles.languageBtn, state.language === item.code && styles.languageBtnActive]}
+                    onPress={() => dispatch({ type: 'SET_LANGUAGE', payload: item.code })}>
+                    <Text style={[styles.languageText, state.language === item.code && styles.languageTextActive]}>{item.label}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+              <Text style={styles.helperText}>Used for emergency SMS and critical SOS actions.</Text>
+            </View>
+          </View>
+        </Section>
+
+        <Section title="Evidence Vault">
+          <View style={[styles.settingRow, styles.settingRowLast]}>
+            <View style={[styles.settingIconBg, { backgroundColor: '#ff910022' }]}><Ionicons name="lock-closed" size={16} color="#ff9100" /></View>
+            <View style={styles.settingInfo}>
+              <Text style={styles.settingLabel}>Consent-based emergency evidence</Text>
+              <Text style={styles.helperText}>When enabled, SOS visibly records up to 30 seconds of audio and a location timeline on this phone only.</Text>
+              <Text style={styles.settingValue}>{state.evidenceVault.length} evidence session{state.evidenceVault.length === 1 ? '' : 's'} stored</Text>
+              {state.evidenceVault.slice(0, 3).map(item => (
+                <TouchableOpacity key={item.id} style={styles.evidenceRow} onPress={() => playEvidence(item.audioUri)} disabled={!item.audioUri}>
+                  <Ionicons name={item.audioUri ? 'play-circle' : 'location'} size={18} color="#ff9100" />
+                  <Text style={styles.evidenceText}>{new Date(item.startedAt).toLocaleString()} · {item.locations?.length || 0} locations</Text>
+                </TouchableOpacity>
+              ))}
+              {state.evidenceVault.length > 0 && <TouchableOpacity style={styles.clearEvidenceBtn} onPress={clearEvidenceVault}><Text style={styles.clearEvidenceText}>Delete all evidence</Text></TouchableOpacity>}
+            </View>
+            <Switch value={state.evidenceConsent} onValueChange={value => dispatch({ type: 'SET_EVIDENCE_CONSENT', payload: value })}
+              trackColor={{ false: '#333', true: '#ff910077' }} thumbColor={state.evidenceConsent ? '#ff9100' : '#777'} />
+          </View>
+        </Section>
 
         <Section title="Your Identity">
           <View style={styles.settingRow}>
@@ -404,6 +462,15 @@ const styles = StyleSheet.create({
     borderColor: '#ff174444',
   },
   testBtnText: { color: COLORS.primary, fontSize: 12, fontWeight: '600' },
+  languageRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 12 },
+  languageBtn: { paddingHorizontal: 12, paddingVertical: 10, borderRadius: 10, borderWidth: 1, borderColor: COLORS.border, backgroundColor: COLORS.input },
+  languageBtnActive: { borderColor: COLORS.primary, backgroundColor: '#ff174422' },
+  languageText: { color: COLORS.muted, fontSize: 12, fontWeight: '600' },
+  languageTextActive: { color: COLORS.primary },
+  evidenceRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 10, padding: 8, borderRadius: 8, backgroundColor: '#ff910011' },
+  evidenceText: { color: COLORS.muted, fontSize: 11, flex: 1 },
+  clearEvidenceBtn: { marginTop: 12, alignSelf: 'flex-start', paddingVertical: 8 },
+  clearEvidenceText: { color: COLORS.primary, fontSize: 12, fontWeight: '700' },
 
   appInfo: { alignItems: 'center', paddingTop: 8, gap: 4 },
   appInfoText: { fontSize: 13, color: COLORS.muted },

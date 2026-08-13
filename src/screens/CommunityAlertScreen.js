@@ -18,6 +18,7 @@ import * as Haptics from 'expo-haptics';
 import { useAppContext } from '../store/AppContext';
 import { normalizeDisplayName } from '../utils/displayName';
 import { CommunityAlertService } from '../services/CommunityAlertService';
+import { t } from '../utils/i18n';
 
 // Deliberately distinct from EmergencyScreen's red — this is "someone else needs
 // help", not "I need help", and should never be visually confusable with it.
@@ -152,7 +153,7 @@ export default function CommunityAlertScreen() {
 
           <TouchableOpacity style={[styles.respondBtn, acknowledged && styles.respondBtnDone]} onPress={acknowledgeAlert} disabled={acknowledged}>
             <Ionicons name={acknowledged ? 'checkmark-circle' : 'navigate'} size={20} color="#fff" />
-            <Text style={styles.respondText}>{acknowledged ? 'I’m Responding' : 'I Can Help'}</Text>
+            <Text style={styles.respondText}>{acknowledged ? t(state.language, 'responding') : t(state.language, 'canHelp')}</Text>
           </TouchableOpacity>
 
           <View style={styles.card}>

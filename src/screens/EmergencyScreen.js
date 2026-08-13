@@ -24,6 +24,8 @@ import * as Location from 'expo-location';
 
 import { useAppContext } from '../store/AppContext';
 import { CommunityAlertService } from '../services/CommunityAlertService';
+import { EvidenceService } from '../services/EvidenceService';
+import { t } from '../utils/i18n';
 
 const COLORS = {
   bg: '#0d0000',
@@ -46,9 +48,11 @@ export default function EmergencyScreen() {
   const [passkeyVisible, setPasskeyVisible] = useState(false);
   const [passkeyEntry, setPasskeyEntry] = useState('');
   const [endingAlert, setEndingAlert] = useState(false);
+  const [evidenceRecording, setEvidenceRecording] = useState(false);
   const callAppState = useRef(AppState.currentState);
   const callWasBackgrounded = useRef(false);
   const nextCallPromptVisible = useRef(false);
+  const escalatedRadiusRef = useRef(1);
 
   useEffect(() => {
     KeepAwake.activateKeepAwakeAsync().catch(() => {});
@@ -62,6 +66,27 @@ export default function EmergencyScreen() {
       KeepAwake.deactivateKeepAwake().catch(() => {});
     };
   }, []);
+
+  useEffect(() => {
+    if (!state.evidenceConsent || !state.sosActive) return undefined;
+    let active = true;
+    EvidenceService.start().then(() => {
+      if (!active) { EvidenceService.stop().catch(() => {}); return; }
+      setEvidenceRecording(true);
+      const timer = setTimeout(() => {
+        EvidenceService.stop().then(evidence => {
+          if (evidence) dispatch({ type: 'ADD_EVIDENCE', payload: evidence });
+          if (active) setEvidenceRecording(false);
+        }).catch(() => {});
+      }, 30000);
+      EvidenceService.recordingTimer = timer;
+    }).catch(error => Alert.alert('Evidence Recording Unavailable', error.message || 'Microphone permission is required.'));
+    return () => {
+      active = false;
+      clearTimeout(EvidenceService.recordingTimer);
+      EvidenceService.stop().then(evidence => { if (evidence) dispatch({ type: 'ADD_EVIDENCE', payload: evidence }); }).catch(() => {});
+    };
+  }, [state.evidenceConsent, state.sosActive, dispatch]);
 
   useEffect(() => {
     const subscription = AppState.addEventListener('change', (nextState) => {
@@ -132,6 +157,7 @@ export default function EmergencyScreen() {
       loc => {
         const location = { latitude: loc.coords.latitude, longitude: loc.coords.longitude, accuracy: loc.coords.accuracy };
         dispatch({ type: 'SET_LOCATION', payload: location });
+        EvidenceService.addLocation(location);
         CommunityAlertService.updateSOSLocation({ serverUrl: state.alertServerUrl, alertId: state.activeAlertId, senderToken: state.expoPushToken, location }).catch(() => {});
       },
     ).then(value => { subscription = value; }).catch(() => {});
@@ -142,6 +168,16 @@ export default function EmergencyScreen() {
     }, 5000);
     return () => { subscription?.remove?.(); clearInterval(timer); };
   }, [state.sosActive, state.activeAlertId, state.alertServerUrl, state.expoPushToken, dispatch]);
+
+  useEffect(() => {
+    if (!state.activeAlertId || !state.sosActive) return;
+    const radiusKm = elapsedSeconds >= 60 ? 10 : elapsedSeconds >= 20 ? 3 : 1;
+    if (radiusKm <= escalatedRadiusRef.current) return;
+    escalatedRadiusRef.current = radiusKm;
+    CommunityAlertService.escalateSOS({ serverUrl: state.alertServerUrl, alertId: state.activeAlertId, senderToken: state.expoPushToken, radiusKm })
+      .then(result => dispatch({ type: 'SET_DELIVERY_STATUS', payload: { recipients: result.totalRecipients || 0, radiusKm } }))
+      .catch(() => {});
+  }, [elapsedSeconds, state.activeAlertId, state.sosActive, state.alertServerUrl, state.expoPushToken, dispatch]);
 
   function startAnimations() {
     // Flash background
@@ -182,6 +218,8 @@ export default function EmergencyScreen() {
 
   async function confirmSafe() {
     if (state.duressPasskey && passkeyEntry === state.duressPasskey) {
+      const evidence = await EvidenceService.stop().catch(() => null);
+      if (evidence) dispatch({ type: 'ADD_EVIDENCE', payload: evidence });
       NativeModules.EmergencyCall?.cancelCalls();
       Vibration.cancel();
       dispatch({ type: 'DISMISS_SOS' });
@@ -209,6 +247,8 @@ export default function EmergencyScreen() {
       return;
     }
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+    const evidence = await EvidenceService.stop().catch(() => null);
+    if (evidence) dispatch({ type: 'ADD_EVIDENCE', payload: evidence });
     NativeModules.EmergencyCall?.cancelCalls();
     Vibration.cancel();
     dispatch({ type: 'DISMISS_SOS' });
@@ -257,7 +297,8 @@ export default function EmergencyScreen() {
             </Animated.View>
 
             <Text style={styles.alertTitle}>SOS ALERT</Text>
-            <Text style={styles.alertSubtitle}>EMERGENCY TRIGGERED</Text>
+            <Text style={styles.alertSubtitle}>{t(state.language, 'emergency')}</Text>
+            {evidenceRecording && <Text style={styles.recordingBadge}>● EVIDENCE RECORDING · 30s MAX</Text>}
             <Text style={styles.elapsedText}>{elapsed}</Text>
           </Animated.View>
 
@@ -268,6 +309,7 @@ export default function EmergencyScreen() {
             <Text style={styles.sourceText}>SMS: {state.deliveryStatus.sms} ({state.deliveryStatus.smsSent || 0})</Text>
             <Text style={styles.sourceText}>Call: {state.deliveryStatus.call}</Text>
             <Text style={styles.sourceText}>Responders: {state.deliveryStatus.acknowledgements || 0}</Text>
+            <Text style={styles.sourceText}>Alert radius: {state.deliveryStatus.radiusKm || 1} km</Text>
           </Animated.View>
           <Animated.View style={[styles.sourceCard, { opacity: opacityAnim }]}>
             <Text style={styles.cardLabel}>TRIGGER SOURCE</Text>
@@ -325,7 +367,7 @@ export default function EmergencyScreen() {
           <Animated.View style={[{ opacity: opacityAnim }]}>
             <TouchableOpacity style={styles.dismissBtn} onPress={handleDismiss}>
               <Ionicons name="checkmark-circle" size={20} color="#fff" />
-              <Text style={styles.dismissText}>I'M SAFE - Dismiss Alert</Text>
+              <Text style={styles.dismissText}>{t(state.language, 'safe')}</Text>
             </TouchableOpacity>
 
             <Text style={styles.dismissWarning}>
@@ -504,6 +546,7 @@ const styles = StyleSheet.create({
     marginTop: 8,
     marginBottom: 20,
   },
+  recordingBadge: { color: '#fff', backgroundColor: '#b00020', borderRadius: 10, paddingHorizontal: 10, paddingVertical: 5, fontSize: 10, fontWeight: '800', marginTop: 10 },
   modalOverlay: { flex: 1, backgroundColor: '#000000cc', alignItems: 'center', justifyContent: 'center', padding: 24 },
   passkeyCard: { width: '100%', backgroundColor: '#161616', borderRadius: 20, padding: 24, alignItems: 'center', borderWidth: 1, borderColor: '#00c85355' },
   passkeyTitle: { color: '#fff', fontSize: 20, fontWeight: '800', marginTop: 12 },

@@ -124,6 +124,11 @@ class CommunityAlertServiceClass {
     return postJson(`${baseUrl}/acknowledge-sos`, { alertId, responderToken, responderName });
   }
 
+  async escalateSOS({ serverUrl, alertId, senderToken, radiusKm }) {
+    const baseUrl = normalizeUrl(serverUrl);
+    return postJson(`${baseUrl}/escalate-sos`, { alertId, senderToken, radiusKm });
+  }
+
   async updateSOSLocation({ serverUrl, alertId, senderToken, location }) {
     const baseUrl = normalizeUrl(serverUrl);
     return postJson(`${baseUrl}/update-sos-location`, {

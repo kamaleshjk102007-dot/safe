@@ -31,6 +31,9 @@ const initialState = {
   emergencyCallIndex: -1,
   duressPasskey: '',
   deliveryStatus: { community: 'idle', sms: 'idle', call: 'idle', recipients: 0, smsSent: 0 },
+  language: 'en',
+  evidenceConsent: false,
+  evidenceVault: [],
 };
 
 function reducer(state, action) {
@@ -107,6 +110,10 @@ function reducer(state, action) {
       return { ...state, duressPasskey: action.payload };
     case 'SET_DELIVERY_STATUS':
       return { ...state, deliveryStatus: { ...state.deliveryStatus, ...action.payload } };
+    case 'SET_LANGUAGE': return { ...state, language: action.payload };
+    case 'SET_EVIDENCE_CONSENT': return { ...state, evidenceConsent: action.payload };
+    case 'SET_EVIDENCE_VAULT': return { ...state, evidenceVault: action.payload };
+    case 'ADD_EVIDENCE': return { ...state, evidenceVault: [action.payload, ...state.evidenceVault].slice(0, 20) };
     case 'UPDATE_REMOTE_ALERT':
       return { ...state, remoteAlerts: state.remoteAlerts.map(a => a.alertId === action.payload.alertId ? { ...a, ...action.payload } : a) };
     case 'RESOLVE_REMOTE_ALERT':
@@ -142,6 +149,8 @@ export function AppProvider({ children }) {
     AsyncStorage.setItem('history', JSON.stringify(state.historyEvents));
   }, [state.historyEvents]);
 
+  useEffect(() => { AsyncStorage.setItem('evidenceVault', JSON.stringify(state.evidenceVault)); }, [state.evidenceVault]);
+
   useEffect(() => {
     AsyncStorage.setItem('smsNumber', state.smsNumber || '');
     AsyncStorage.setItem('alertServerUrl', state.alertServerUrl || '');
@@ -149,7 +158,9 @@ export function AppProvider({ children }) {
     AsyncStorage.setItem('displayName', state.displayName || '');
     AsyncStorage.setItem('safetyPasskey', state.safetyPasskey || '');
     AsyncStorage.setItem('duressPasskey', state.duressPasskey || '');
-  }, [state.smsNumber, state.alertServerUrl, state.expoPushToken, state.displayName, state.safetyPasskey, state.duressPasskey]);
+    AsyncStorage.setItem('language', state.language);
+    AsyncStorage.setItem('evidenceConsent', state.evidenceConsent ? 'true' : 'false');
+  }, [state.smsNumber, state.alertServerUrl, state.expoPushToken, state.displayName, state.safetyPasskey, state.duressPasskey, state.language, state.evidenceConsent]);
 
   async function loadPersistedData() {
     try {
@@ -161,6 +172,9 @@ export function AppProvider({ children }) {
       const displayName = await AsyncStorage.getItem('displayName');
       const safetyPasskey = await AsyncStorage.getItem('safetyPasskey');
       const duressPasskey = await AsyncStorage.getItem('duressPasskey');
+      const language = await AsyncStorage.getItem('language');
+      const evidenceConsent = await AsyncStorage.getItem('evidenceConsent');
+      const evidenceVault = await AsyncStorage.getItem('evidenceVault');
 
       if (contacts) dispatch({ type: 'SET_CONTACTS', payload: JSON.parse(contacts) });
       if (history) dispatch({ type: 'SET_HISTORY', payload: JSON.parse(history) });
@@ -170,6 +184,9 @@ export function AppProvider({ children }) {
       if (displayName) dispatch({ type: 'SET_DISPLAY_NAME', payload: displayName });
       if (safetyPasskey) dispatch({ type: 'SET_SAFETY_PASSKEY', payload: safetyPasskey });
       if (duressPasskey) dispatch({ type: 'SET_DURESS_PASSKEY', payload: duressPasskey });
+      if (language) dispatch({ type: 'SET_LANGUAGE', payload: language });
+      if (evidenceConsent) dispatch({ type: 'SET_EVIDENCE_CONSENT', payload: evidenceConsent === 'true' });
+      if (evidenceVault) dispatch({ type: 'SET_EVIDENCE_VAULT', payload: JSON.parse(evidenceVault) });
     } catch (e) {
       console.error('[AppContext] Failed to load persisted data:', e);
     }

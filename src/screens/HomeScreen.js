@@ -21,6 +21,7 @@ import { useAppContext } from '../store/AppContext';
 import { NotificationService } from '../services/NotificationService';
 import { CommunityAlertService } from '../services/CommunityAlertService';
 import { normalizeDisplayName } from '../utils/displayName';
+import { t } from '../utils/i18n';
 
 const COLORS = {
   bg: '#0a0a0a',
@@ -119,7 +120,7 @@ export default function HomeScreen() {
       const lat = state.currentLocation?.latitude;
       const lng = state.currentLocation?.longitude;
       const mapLink = lat != null && lng != null ? `https://maps.google.com/?q=${lat},${lng}` : 'Location unavailable';
-      NativeModules.EmergencySms?.sendToAll(contactNumbers, `SOS! ${senderName} needs help. Location: ${mapLink}`)
+      NativeModules.EmergencySms?.sendToAll(contactNumbers, `${t(state.language, 'sosSms', senderName)} ${mapLink}`)
         .then(count => dispatch({ type: 'SET_DELIVERY_STATUS', payload: { sms: 'sent', smsSent: Number(count) || 0 } }))
         .catch(() => dispatch({ type: 'SET_DELIVERY_STATUS', payload: { sms: 'failed' } }));
     } else {
@@ -136,6 +137,7 @@ export default function HomeScreen() {
         timestamp,
         senderToken: state.expoPushToken,
         senderName,
+        language: state.language,
         },
       });
       if (result?.alert?.id) dispatch({ type: 'SET_ACTIVE_ALERT_ID', payload: result.alert.id });

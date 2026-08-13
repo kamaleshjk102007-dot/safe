@@ -17,7 +17,7 @@ const MAX_BODY_BYTES = 16 * 1024;
 const API_KEY = process.env.SAFEGUARD_ALERT_API_KEY || '';
 const MAX_SENDER_NAME_LENGTH = 40;
 const DEFAULT_SENDER_NAME = 'Someone';
-const ALERT_RADIUS_KM = Number(process.env.SAFEGUARD_ALERT_RADIUS_KM) || 10;
+const ALERT_RADIUS_KM = Number(process.env.SAFEGUARD_ALERT_RADIUS_KM) || 1;
 
 function distanceKm(aLat, aLng, bLat, bLng) {
   const rad = value => value * Math.PI / 180;
@@ -90,6 +90,12 @@ function validateCoordinate(value, min, max) {
 function normalizeSenderName(rawName) {
   const trimmed = String(rawName || '').trim().slice(0, MAX_SENDER_NAME_LENGTH);
   return trimmed || DEFAULT_SENDER_NAME;
+}
+
+function pushCopy(language, name) {
+  if (language === 'hi') return { title: `🚨 ${name} को मदद चाहिए!`, body: 'लाइव स्थान देखने के लिए टैप करें।' };
+  if (language === 'ta') return { title: `🚨 ${name}க்கு உதவி தேவை!`, body: 'நேரடி இருப்பிடத்தை பார்க்க தட்டவும்.' };
+  return { title: `🚨 ${name} needs help!`, body: 'Tap to view their live location.' };
 }
 
 function clientError(res, error) {
@@ -187,6 +193,7 @@ const server = http.createServer(async (req, res) => {
         const timestamp = body.timestamp || new Date().toISOString();
         const senderToken = body.senderToken || '';
         const senderName = normalizeSenderName(body.senderName);
+        const language = ['en', 'hi', 'ta'].includes(body.language) ? body.language : 'en';
         const alert = {
           id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
           lat,
@@ -195,6 +202,7 @@ const server = http.createServer(async (req, res) => {
           timestamp,
           senderToken,
           senderName,
+          language,
         };
         saveAlert(alert);
 
@@ -204,10 +212,12 @@ const server = http.createServer(async (req, res) => {
         const nearbyTokens = otherTokens.filter(entry =>
           entry.lat !== null && entry.lng !== null && distanceKm(lat, lng, entry.lat, entry.lng) <= ALERT_RADIUS_KM
         );
-        const recipientTokens = nearbyTokens.length > 0 ? nearbyTokens : otherTokens;
-        alert.delivery = { targeted: recipientTokens.length, radiusKm: ALERT_RADIUS_KM, mode: nearbyTokens.length ? 'nearby' : 'fallback-all' };
+        const recipientTokens = nearbyTokens;
+        alert.notifiedTokens = recipientTokens.map(entry => entry.token);
+        alert.delivery = { targeted: recipientTokens.length, radiusKm: ALERT_RADIUS_KM, mode: 'nearby' };
         saveAlerts([alert, ...loadAlerts().filter(item => item.id !== alert.id)]);
 
+        const initialCopy = pushCopy(language, senderName);
         const messages = recipientTokens.map((entry) => ({
           to: entry.token,
           sound: 'default',
@@ -227,11 +237,41 @@ const server = http.createServer(async (req, res) => {
           channelId: 'community-alerts',
         }));
 
-        const result = await sendExpoPushNotifications(messages);
+        const result = await sendExpoPushNotifications(messages.map(message => ({ ...message, title: initialCopy.title, body: initialCopy.body })));
         return json(res, 200, { ok: true, recipients: recipientTokens.length, alert, result });
       } catch (error) {
         return clientError(res, error);
       }
+    }
+
+    if (req.method === 'POST' && req.url === '/escalate-sos') {
+      try {
+        if (!isAuthorized(req)) return json(res, 401, { error: 'Unauthorized' });
+        const body = await readJson(req); const alerts = loadAlerts();
+        const index = alerts.findIndex(alert => alert.id === body.alertId);
+        if (index < 0) return json(res, 404, { error: 'Alert not found' });
+        const alert = alerts[index];
+        if (alert.senderToken !== body.senderToken) return json(res, 403, { error: 'Sender mismatch' });
+        const radiusKm = Math.min(10, Math.max(1, Number(body.radiusKm) || 1));
+        const notified = new Set(alert.notifiedTokens || []);
+        const expandedCopy = pushCopy(alert.language, alert.senderName);
+        const recipients = loadTokens().filter(entry => {
+          if (entry.token === alert.senderToken || notified.has(entry.token)) return false;
+          if (entry.lat === null || entry.lng === null) return radiusKm >= 10;
+          return distanceKm(alert.lat, alert.lng, entry.lat, entry.lng) <= radiusKm;
+        });
+        const messages = recipients.map(entry => ({
+          to: entry.token, sound: 'default', title: `🚨 ${alert.senderName} needs help!`,
+          body: 'Tap to view their live location.',
+          data: { lat: alert.lat, lng: alert.lng, source: alert.source, timestamp: alert.timestamp, remoteBroadcast: true, alertId: alert.id, senderToken: alert.senderToken, senderName: alert.senderName },
+          priority: 'high', channelId: 'community-alerts',
+        }));
+        const result = await sendExpoPushNotifications(messages.map(message => ({ ...message, title: expandedCopy.title, body: expandedCopy.body })));
+        alerts[index].notifiedTokens = [...notified, ...recipients.map(entry => entry.token)];
+        alerts[index].delivery = { targeted: alerts[index].notifiedTokens.length, radiusKm, mode: radiusKm >= 10 ? 'maximum' : 'expanded' };
+        saveAlerts(alerts);
+        return json(res, 200, { ok: true, recipients: recipients.length, totalRecipients: alerts[index].notifiedTokens.length, radiusKm, result });
+      } catch (error) { return clientError(res, error); }
     }
 
     if (req.method === 'POST' && req.url === '/acknowledge-sos') {
