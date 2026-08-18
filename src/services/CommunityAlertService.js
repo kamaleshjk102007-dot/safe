@@ -7,6 +7,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 const REQUEST_TIMEOUT_MS = 10000;
 const FALLBACK_EAS_PROJECT_ID = 'b0ddfa23-d2bc-4882-8704-3b47ffa69bfc';
 const ALERT_API_KEY = '';
+const COMMUNITY_CHANNEL_ID = 'resq-community-emergency-v2';
 
 function firstNonEmpty(...values) {
   return values.find(value => typeof value === 'string' && value.trim().length > 0)?.trim() || null;
@@ -78,10 +79,14 @@ class CommunityAlertServiceClass {
 
   async registerForPushAsync() {
     if (Platform.OS === 'android') {
-      await Notifications.setNotificationChannelAsync('community-alerts', {
-        name: 'Community Alerts',
+      await Notifications.setNotificationChannelAsync(COMMUNITY_CHANNEL_ID, {
+        name: 'RESQ 360 Emergency Alerts',
         importance: Notifications.AndroidImportance.MAX,
-        vibrationPattern: [0, 300, 150, 300],
+        sound: 'default',
+        enableVibrate: true,
+        vibrationPattern: [0, 500, 200, 500, 200, 800],
+        lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
+        bypassDnd: true,
         lightColor: '#FF1744',
       });
     }

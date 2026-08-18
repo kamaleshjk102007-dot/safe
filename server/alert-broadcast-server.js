@@ -247,7 +247,7 @@ const server = http.createServer(async (req, res) => {
               to: entry.token, sound: 'default', title: 'New SOS evidence available',
               body: 'A new 10-second emergency audio part is available.',
               data: { remoteBroadcast: true, evidenceUpdate: true, alertId: body.alertId, evidenceLinks: alerts[alertIndex].evidenceLinks },
-              priority: 'high', ttl: 3600, tag: `sos-evidence-${body.alertId}`, channelId: 'community-alerts',
+              priority: 'high', ttl: 3600, tag: `sos-evidence-${body.alertId}`, channelId: 'resq-community-emergency-v2',
             }))).catch(() => null);
             const evidenceEvent = { id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, evidenceUpdate: true,
               targetAlertId: body.alertId, evidenceLinks: alerts[alertIndex].evidenceLinks };
@@ -344,7 +344,7 @@ const server = http.createServer(async (req, res) => {
           priority: 'high',
           ttl: 3600,
           tag: `sos-${alert.id}`,
-          channelId: 'community-alerts',
+          channelId: 'resq-community-emergency-v2',
         }));
 
         const result = await sendExpoPushNotifications(messages.map(message => ({ ...message, title: initialCopy.title, body: initialCopy.body })));
@@ -376,7 +376,7 @@ const server = http.createServer(async (req, res) => {
           to: entry.token, sound: 'default', title: `🚨 ${alert.senderName} needs help!`,
           body: 'Tap to view their live location.',
           data: { lat: alert.lat, lng: alert.lng, source: alert.source, timestamp: alert.timestamp, remoteBroadcast: true, alertId: alert.id, senderToken: alert.senderToken, senderName: alert.senderName },
-          priority: 'high', ttl: 3600, tag: `sos-${alert.id}`, channelId: 'community-alerts',
+          priority: 'high', ttl: 3600, tag: `sos-${alert.id}`, channelId: 'resq-community-emergency-v2',
         }));
         const result = await sendExpoPushNotifications(messages.map(message => ({ ...message, title: expandedCopy.title, body: expandedCopy.body })));
         alerts[index].notifiedTokens = [...notified, ...recipients.map(entry => entry.token)];
@@ -456,7 +456,7 @@ const server = http.createServer(async (req, res) => {
           priority: 'high',
           ttl: 3600,
           tag: `sos-resolved-${body.alertId}`,
-          channelId: 'community-alerts',
+          channelId: 'resq-community-emergency-v2',
         }));
         const result = await sendExpoPushNotifications(messages);
         return json(res, 200, { ok: true, alert: alerts[index], result });

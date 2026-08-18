@@ -21,6 +21,17 @@ class NotificationServiceClass {
     }
 
     if (Platform.OS === 'android') {
+      await Notifications.setNotificationChannelAsync('resq-community-emergency-v2', {
+        name: 'RESQ 360 Emergency Alerts',
+        importance: Notifications.AndroidImportance.MAX,
+        vibrationPattern: [0, 500, 200, 500, 200, 800],
+        lightColor: '#FF1744',
+        sound: 'default',
+        enableLights: true,
+        enableVibrate: true,
+        lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
+        bypassDnd: true,
+      });
       await Notifications.setNotificationChannelAsync('emergency', {
         name: 'Emergency Alerts',
         importance: Notifications.AndroidImportance.MAX,
