@@ -135,6 +135,10 @@ function AppInner() {
 
       try {
         await NotificationService.initialize();
+        const coldStartAlert = await NotificationService.getLastResponseData();
+        if (coldStartAlert?.remoteBroadcast) {
+          handleIncomingCommunityAlert(coldStartAlert);
+        }
       } catch (error) {
         console.error('[App] Notification initialization failed:', error);
       }

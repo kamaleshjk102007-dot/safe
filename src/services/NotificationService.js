@@ -47,6 +47,11 @@ class NotificationServiceClass {
     });
   }
 
+  async getLastResponseData() {
+    const response = await Notifications.getLastNotificationResponseAsync();
+    return response?.notification?.request?.content?.data || null;
+  }
+
   unsubscribe() {
     this.foregroundSubscription?.remove?.();
     this.responseSubscription?.remove?.();
