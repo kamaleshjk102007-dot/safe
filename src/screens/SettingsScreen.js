@@ -20,6 +20,7 @@ import { normalizeDisplayName, MAX_DISPLAY_NAME_LENGTH } from '../utils/displayN
 import { LANGUAGES } from '../utils/i18n';
 import { Audio } from 'expo-av';
 import { EvidenceService } from '../services/EvidenceService';
+import { ALERT_SERVER_URL } from '../config';
 
 const COLORS = {
   bg: '#06131F',
@@ -64,7 +65,6 @@ export default function SettingsScreen() {
   const { state, dispatch } = useAppContext();
   const [editingSMS, setEditingSMS] = useState(false);
   const [smsInput, setSmsInput] = useState(state.smsNumber);
-  const [serverUrlInput, setServerUrlInput] = useState(state.alertServerUrl);
   const [displayNameInput, setDisplayNameInput] = useState(state.displayName);
   const [passkeyInput, setPasskeyInput] = useState(state.safetyPasskey);
   const [duressInput, setDuressInput] = useState(state.duressPasskey);
@@ -105,30 +105,6 @@ export default function SettingsScreen() {
     dispatch({ type: 'SET_DURESS_PASSKEY', payload: value });
     setDuressInput(value);
     Alert.alert('Duress Passkey Saved', 'This code will close the alert locally while silently keeping help active.');
-  }
-
-  async function saveServerUrl() {
-    const trimmed = serverUrlInput.trim();
-    dispatch({ type: 'SET_ALERT_SERVER_URL', payload: trimmed });
-
-    if (!trimmed) {
-      Alert.alert('Broadcast Server Cleared', 'Community-wide SOS alerts are disabled until you add a server URL again.');
-      return;
-    }
-
-    try {
-      const pushToken = state.expoPushToken || await CommunityAlertService.registerForPushAsync();
-      dispatch({ type: 'SET_EXPO_PUSH_TOKEN', payload: pushToken });
-      await CommunityAlertService.registerDevice({
-        serverUrl: trimmed,
-        pushToken,
-        label: 'RESQ 360 User',
-        location: state.currentLocation,
-      });
-      Alert.alert('Broadcast Enabled', 'This phone is registered to receive SOS alerts from other RESQ 360 users.');
-    } catch (error) {
-      Alert.alert('Registration Incomplete', error.message || 'Could not register this phone yet.');
-    }
   }
 
   function testSMSParsing() {
@@ -295,32 +271,11 @@ export default function SettingsScreen() {
         </Section>
 
         <Section title="Community Alerts">
-          <View style={styles.settingRow}>
-            <View style={[styles.settingIconBg, { backgroundColor: '#448aff22' }]}>
-              <Ionicons name="notifications" size={16} color="#448aff" />
-            </View>
-            <View style={styles.settingInfo}>
-              <Text style={styles.settingLabel}>Broadcast Server URL</Text>
-              <TextInput
-                style={[styles.inlineInput, { marginTop: 6 }]}
-                value={serverUrlInput}
-                onChangeText={setServerUrlInput}
-                placeholder="http://192.168.1.10:3001"
-                placeholderTextColor={COLORS.muted}
-                autoCapitalize="none"
-                autoCorrect={false}
-              />
-              <TouchableOpacity style={styles.testBtn} onPress={saveServerUrl}>
-                <Ionicons name="save" size={14} color="#fff" />
-                <Text style={styles.testBtnText}>Save & Register</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
           <SettingRow
-            icon="radio"
-            iconColor={state.alertServerUrl ? COLORS.green : COLORS.muted}
-            label="Current Broadcast Target"
-            value={state.alertServerUrl || 'Not configured'}
+            icon="cloud-done"
+            iconColor={COLORS.green}
+            label="RESQ 360 Cloud"
+            value={ALERT_SERVER_URL}
             isLast
           />
         </Section>

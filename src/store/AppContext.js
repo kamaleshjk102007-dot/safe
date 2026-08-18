@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useReducer, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { ALERT_SERVER_URL } from '../config';
 
 const AppContext = createContext(null);
 
@@ -23,7 +24,7 @@ const initialState = {
 
   // Settings
   smsNumber: '',
-  alertServerUrl: '',
+  alertServerUrl: ALERT_SERVER_URL,
   expoPushToken: '',
   displayName: '',
   safetyPasskey: '',
@@ -94,8 +95,6 @@ function reducer(state, action) {
       return { ...state, historyEvents: [] };
     case 'SET_SMS_NUMBER':
       return { ...state, smsNumber: action.payload };
-    case 'SET_ALERT_SERVER_URL':
-      return { ...state, alertServerUrl: action.payload };
     case 'SET_EXPO_PUSH_TOKEN':
       return { ...state, expoPushToken: action.payload };
     case 'SET_DISPLAY_NAME':
@@ -154,21 +153,19 @@ export function AppProvider({ children }) {
 
   useEffect(() => {
     AsyncStorage.setItem('smsNumber', state.smsNumber || '');
-    AsyncStorage.setItem('alertServerUrl', state.alertServerUrl || '');
     AsyncStorage.setItem('expoPushToken', state.expoPushToken || '');
     AsyncStorage.setItem('displayName', state.displayName || '');
     AsyncStorage.setItem('safetyPasskey', state.safetyPasskey || '');
     AsyncStorage.setItem('duressPasskey', state.duressPasskey || '');
     AsyncStorage.setItem('language', state.language);
     AsyncStorage.setItem('evidenceConsent', state.evidenceConsent ? 'true' : 'false');
-  }, [state.smsNumber, state.alertServerUrl, state.expoPushToken, state.displayName, state.safetyPasskey, state.duressPasskey, state.language, state.evidenceConsent]);
+  }, [state.smsNumber, state.expoPushToken, state.displayName, state.safetyPasskey, state.duressPasskey, state.language, state.evidenceConsent]);
 
   async function loadPersistedData() {
     try {
       const contacts = await AsyncStorage.getItem('contacts');
       const history = await AsyncStorage.getItem('history');
       const smsNumber = await AsyncStorage.getItem('smsNumber');
-      const alertServerUrl = await AsyncStorage.getItem('alertServerUrl');
       const expoPushToken = await AsyncStorage.getItem('expoPushToken');
       const displayName = await AsyncStorage.getItem('displayName');
       const safetyPasskey = await AsyncStorage.getItem('safetyPasskey');
@@ -180,7 +177,6 @@ export function AppProvider({ children }) {
       if (contacts) dispatch({ type: 'SET_CONTACTS', payload: JSON.parse(contacts) });
       if (history) dispatch({ type: 'SET_HISTORY', payload: JSON.parse(history) });
       if (smsNumber) dispatch({ type: 'SET_SMS_NUMBER', payload: smsNumber });
-      if (alertServerUrl) dispatch({ type: 'SET_ALERT_SERVER_URL', payload: alertServerUrl });
       if (expoPushToken) dispatch({ type: 'SET_EXPO_PUSH_TOKEN', payload: expoPushToken });
       if (displayName) dispatch({ type: 'SET_DISPLAY_NAME', payload: displayName });
       if (safetyPasskey) dispatch({ type: 'SET_SAFETY_PASSKEY', payload: safetyPasskey });
