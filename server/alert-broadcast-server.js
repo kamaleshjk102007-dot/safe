@@ -193,9 +193,16 @@ const server = http.createServer(async (req, res) => {
           return json(res, 400, { error: 'valid Expo push token is required' });
         }
 
-        const tokens = loadTokens().filter((entry) => entry.token !== body.token);
+        const installationId = String(body.installationId || '').slice(0, 120);
+        const previousToken = String(body.previousToken || '');
+        const tokens = loadTokens().filter((entry) =>
+          entry.token !== body.token &&
+          (!previousToken || entry.token !== previousToken) &&
+          (!installationId || entry.installationId !== installationId)
+        );
         tokens.push({
           token: body.token,
+          installationId,
           label: String(body.label || 'RESQ 360 User').slice(0, 80),
           platform: body.platform || 'unknown',
           updatedAt: new Date().toISOString(),
@@ -288,6 +295,7 @@ const server = http.createServer(async (req, res) => {
         const timestamp = body.timestamp || new Date().toISOString();
         const senderToken = body.senderToken || '';
         if (!validateExpoToken(senderToken)) return json(res, 400, { error: 'registered sender token is required' });
+        const senderInstallationId = String(body.senderInstallationId || '').slice(0, 120);
         const senderName = normalizeSenderName(body.senderName);
         const language = ['en', 'hi', 'ta'].includes(body.language) ? body.language : 'en';
         const alert = {
@@ -297,6 +305,7 @@ const server = http.createServer(async (req, res) => {
           source,
           timestamp,
           senderToken,
+          senderInstallationId,
           senderName,
           language,
         };
@@ -304,7 +313,10 @@ const server = http.createServer(async (req, res) => {
 
         // FIX: exclude the sender's own token from the push fan-out so the
         // person who triggered the SOS doesn't get notified about their own alert.
-        const otherTokens = tokens.filter((entry) => entry.token !== senderToken);
+        const otherTokens = tokens.filter((entry) =>
+          entry.token !== senderToken &&
+          (!senderInstallationId || entry.installationId !== senderInstallationId)
+        );
         const nearbyTokens = otherTokens.filter(entry =>
           entry.lat !== null && entry.lng !== null && distanceKm(lat, lng, entry.lat, entry.lng) <= ALERT_RADIUS_KM
         );
@@ -354,7 +366,9 @@ const server = http.createServer(async (req, res) => {
         const notified = new Set(alert.notifiedTokens || []);
         const expandedCopy = pushCopy(alert.language, alert.senderName);
         const recipients = loadTokens().filter(entry => {
-          if (entry.token === alert.senderToken || notified.has(entry.token)) return false;
+          if (entry.token === alert.senderToken ||
+              (alert.senderInstallationId && entry.installationId === alert.senderInstallationId) ||
+              notified.has(entry.token)) return false;
           if (entry.lat === null || entry.lng === null) return radiusKm >= 10;
           return distanceKm(alert.lat, alert.lng, entry.lat, entry.lng) <= radiusKm;
         });
@@ -429,7 +443,10 @@ const server = http.createServer(async (req, res) => {
           senderName: alerts[index].senderName,
         };
         saveAlerts([resolutionEvent, ...alerts]);
-        const recipientTokens = loadTokens().filter((entry) => entry.token !== body.senderToken);
+        const recipientTokens = loadTokens().filter((entry) =>
+          entry.token !== body.senderToken &&
+          (!alerts[index].senderInstallationId || entry.installationId !== alerts[index].senderInstallationId)
+        );
         const messages = recipientTokens.map((entry) => ({
           to: entry.token,
           sound: 'default',

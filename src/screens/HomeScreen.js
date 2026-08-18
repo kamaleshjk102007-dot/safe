@@ -135,6 +135,7 @@ export default function HomeScreen() {
         await CommunityAlertService.registerDevice({
           serverUrl: state.alertServerUrl,
           pushToken: senderToken,
+          previousPushToken: state.expoPushToken,
           label: 'RESQ 360 User',
           location: state.currentLocation,
         });

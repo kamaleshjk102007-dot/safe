@@ -70,6 +70,8 @@ function AppInner() {
       // never be treated as an incoming community alert.
       if (!payload.remoteBroadcast) return;
 
+      if (CommunityAlertService.isOwnedAlert(payload.alertId)) return;
+
       if (payload.safeResolved && payload.alertId) {
         dispatch({ type: 'RESOLVE_REMOTE_ALERT', payload: { alertId: payload.alertId, resolvedAt: payload.resolvedAt } });
         return;
@@ -191,6 +193,7 @@ function AppInner() {
         await CommunityAlertService.registerDevice({
           serverUrl: state.alertServerUrl,
           pushToken,
+          previousPushToken: state.expoPushToken,
           label: 'RESQ 360 User',
           location: state.currentLocation,
         });
@@ -235,7 +238,7 @@ function AppInner() {
           }
 
           // Skip our own broadcast surfaced back via polling.
-          if (alert.senderToken && alert.senderToken === state.expoPushToken) continue;
+          if (CommunityAlertService.isOwnedAlert(alert.id) || (alert.senderToken && alert.senderToken === state.expoPushToken)) continue;
 
           handleIncomingCommunityAlert({
             ...alert,

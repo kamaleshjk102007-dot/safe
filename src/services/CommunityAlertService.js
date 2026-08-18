@@ -2,6 +2,7 @@ import Constants from 'expo-constants';
 import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
 import * as FileSystem from 'expo-file-system';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const REQUEST_TIMEOUT_MS = 10000;
 const FALLBACK_EAS_PROJECT_ID = 'b0ddfa23-d2bc-4882-8704-3b47ffa69bfc';
@@ -57,6 +58,24 @@ async function postJson(url, payload) {
 }
 
 class CommunityAlertServiceClass {
+  installationId = '';
+  ownedAlertIds = new Set();
+
+  async getInstallationId() {
+    if (this.installationId) return this.installationId;
+    let value = await AsyncStorage.getItem('resqInstallationId');
+    if (!value) {
+      value = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`;
+      await AsyncStorage.setItem('resqInstallationId', value);
+    }
+    this.installationId = value;
+    return value;
+  }
+
+  isOwnedAlert(alertId) {
+    return Boolean(alertId && this.ownedAlertIds.has(alertId));
+  }
+
   async registerForPushAsync() {
     if (Platform.OS === 'android') {
       await Notifications.setNotificationChannelAsync('community-alerts', {
@@ -94,12 +113,14 @@ class CommunityAlertServiceClass {
     }
   }
 
-  async registerDevice({ serverUrl, pushToken, label, location }) {
+  async registerDevice({ serverUrl, pushToken, previousPushToken, label, location }) {
     const baseUrl = normalizeUrl(serverUrl);
     if (!baseUrl || !pushToken) return null;
 
     return postJson(`${baseUrl}/register-token`, {
       token: pushToken,
+      previousToken: previousPushToken || '',
+      installationId: await this.getInstallationId(),
       label,
       platform: Platform.OS,
       lat: location?.latitude,
@@ -112,7 +133,12 @@ class CommunityAlertServiceClass {
     if (!baseUrl) return null;
     if (!payload?.senderToken) throw new Error('Community alert registration is not ready');
 
-    return postJson(`${baseUrl}/broadcast-sos`, payload);
+    const result = await postJson(`${baseUrl}/broadcast-sos`, {
+      ...payload,
+      senderInstallationId: await this.getInstallationId(),
+    });
+    if (result?.alert?.id) this.ownedAlertIds.add(result.alert.id);
+    return result;
   }
 
   async resolveSOS({ serverUrl, alertId, senderToken }) {
