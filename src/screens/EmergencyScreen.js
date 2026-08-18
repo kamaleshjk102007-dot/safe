@@ -60,6 +60,13 @@ export default function EmergencyScreen() {
     try {
       const result = await CommunityAlertService.uploadEvidence({ serverUrl: state.alertServerUrl, ownerToken: state.expoPushToken, evidence });
       dispatch({ type: 'UPDATE_EVIDENCE', payload: { id: evidence.id, backupStatus: result ? 'backed_up' : 'local_only', uploadedAt: result?.uploadedAt } });
+      if (result?.accessUrl) {
+        const contactNumbers = state.contacts.map(contact => contact.phone).filter(Boolean);
+        if (contactNumbers.length > 0) {
+          await NativeModules.EmergencySms?.sendToAll(contactNumbers,
+            `RESQ 360 evidence audio · part ${Number(evidence.chunkIndex) + 1}: ${result.accessUrl}`).catch(() => {});
+        }
+      }
     } catch (_) {
       dispatch({ type: 'UPDATE_EVIDENCE', payload: { id: evidence.id, backupStatus: 'local_only' } });
     }
@@ -84,17 +91,14 @@ export default function EmergencyScreen() {
     EvidenceService.start().then(() => {
       if (!active) { EvidenceService.stop().catch(() => {}); return; }
       setEvidenceRecording(true);
-      const timer = setTimeout(() => {
-        EvidenceService.stop().then(evidence => {
-          persistEvidence(evidence);
-          if (active) setEvidenceRecording(false);
-        }).catch(() => {});
-      }, 30000);
+      const timer = setInterval(() => {
+        EvidenceService.rotate().then(persistEvidence).catch(() => {});
+      }, 10000);
       EvidenceService.recordingTimer = timer;
     }).catch(error => Alert.alert('Evidence Recording Unavailable', error.message || 'Microphone permission is required.'));
     return () => {
       active = false;
-      clearTimeout(EvidenceService.recordingTimer);
+      clearInterval(EvidenceService.recordingTimer);
       EvidenceService.stop().then(persistEvidence).catch(() => {});
     };
   }, [state.evidenceConsent, state.sosActive, dispatch]);
@@ -309,7 +313,7 @@ export default function EmergencyScreen() {
 
             <Text style={styles.alertTitle}>SOS ALERT</Text>
             <Text style={styles.alertSubtitle}>{t(state.language, 'emergency')}</Text>
-            {evidenceRecording && <Text style={styles.recordingBadge}>● EVIDENCE RECORDING · 30s MAX</Text>}
+            {evidenceRecording && <Text style={styles.recordingBadge}>● RECORDING UNTIL SOS ENDS · SENDING 10s PARTS</Text>}
             <Text style={styles.elapsedText}>{elapsed}</Text>
           </Animated.View>
 

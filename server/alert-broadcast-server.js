@@ -150,6 +150,23 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, { ok: true, service: 'RESQ 360 broadcast server' });
     }
 
+    if (req.method === 'GET' && req.url.startsWith('/evidence/audio')) {
+      try {
+        const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+        const evidenceId = String(url.searchParams.get('id') || '').replace(/[^A-Za-z0-9_-]/g, '').slice(0, 80);
+        const accessKey = String(url.searchParams.get('key') || '');
+        if (!evidenceId || accessKey.length < 32) return json(res, 400, { error: 'Invalid evidence link' });
+        ensureEvidenceDir();
+        const fileName = fs.readdirSync(EVIDENCE_DIR).find(name => name.endsWith(`-${evidenceId}.json`));
+        if (!fileName) return json(res, 404, { error: 'Evidence not found' });
+        const record = JSON.parse(fs.readFileSync(path.join(EVIDENCE_DIR, fileName), 'utf8'));
+        if (record.accessKey !== accessKey || !record.audioBase64) return json(res, 403, { error: 'Evidence access denied' });
+        const audio = Buffer.from(record.audioBase64, 'base64');
+        res.writeHead(200, { 'Content-Type': 'audio/mp4', 'Content-Length': audio.length, 'Cache-Control': 'private, no-store' });
+        return res.end(audio);
+      } catch (error) { return clientError(res, error); }
+    }
+
     if (req.method === 'GET' && req.url.startsWith('/alerts')) {
       try {
         if (!isAuthorized(req)) {
@@ -203,13 +220,15 @@ const server = http.createServer(async (req, res) => {
         if (audioBase64 && !/^[A-Za-z0-9+/=]+$/.test(audioBase64)) return json(res, 400, { error: 'invalid audio data' });
         ensureEvidenceDir();
         const ownerId = evidenceOwnerId(body.ownerToken);
-        const record = { id: evidenceId, ownerId, startedAt: body.startedAt || null, endedAt: body.endedAt || null,
+        const accessKey = crypto.randomBytes(24).toString('hex');
+        const record = { id: evidenceId, ownerId, accessKey, startedAt: body.startedAt || null, endedAt: body.endedAt || null,
           locations: Array.isArray(body.locations) ? body.locations.slice(-100) : [], audioBase64,
           uploadedAt: new Date().toISOString(), retainedAfterDuress: false };
         fs.writeFileSync(path.join(EVIDENCE_DIR, `${ownerId}-${evidenceId}.json`), JSON.stringify(record));
         const files = ownerEvidenceFiles(body.ownerToken).map(name => ({ name, time: fs.statSync(path.join(EVIDENCE_DIR, name)).mtimeMs })).sort((a, b) => b.time - a.time);
-        files.slice(20).forEach(item => fs.unlinkSync(path.join(EVIDENCE_DIR, item.name)));
-        return json(res, 200, { ok: true, evidenceId, uploadedAt: record.uploadedAt });
+        files.slice(360).forEach(item => fs.unlinkSync(path.join(EVIDENCE_DIR, item.name)));
+        return json(res, 200, { ok: true, evidenceId, uploadedAt: record.uploadedAt,
+          accessPath: `/evidence/audio?id=${encodeURIComponent(evidenceId)}&key=${encodeURIComponent(accessKey)}` });
       } catch (error) { return clientError(res, error); }
     }
 
@@ -248,6 +267,7 @@ const server = http.createServer(async (req, res) => {
         const source = String(body.source || 'APP_USER').slice(0, 40);
         const timestamp = body.timestamp || new Date().toISOString();
         const senderToken = body.senderToken || '';
+        if (!validateExpoToken(senderToken)) return json(res, 400, { error: 'registered sender token is required' });
         const senderName = normalizeSenderName(body.senderName);
         const language = ['en', 'hi', 'ta'].includes(body.language) ? body.language : 'en';
         const alert = {

@@ -128,6 +128,17 @@ export default function HomeScreen() {
     }
 
     try {
+      let senderToken = state.expoPushToken;
+      if (!senderToken) {
+        senderToken = await CommunityAlertService.registerForPushAsync();
+        dispatch({ type: 'SET_EXPO_PUSH_TOKEN', payload: senderToken });
+        await CommunityAlertService.registerDevice({
+          serverUrl: state.alertServerUrl,
+          pushToken: senderToken,
+          label: 'RESQ 360 User',
+          location: state.currentLocation,
+        });
+      }
       const result = await CommunityAlertService.broadcastSOS({
         serverUrl: state.alertServerUrl,
         payload: {
@@ -135,7 +146,7 @@ export default function HomeScreen() {
         lng: state.currentLocation?.longitude,
         source: 'MANUAL',
         timestamp,
-        senderToken: state.expoPushToken,
+        senderToken,
         senderName,
         language: state.language,
         },

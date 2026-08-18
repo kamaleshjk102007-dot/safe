@@ -110,6 +110,7 @@ class CommunityAlertServiceClass {
   async broadcastSOS({ serverUrl, payload }) {
     const baseUrl = normalizeUrl(serverUrl);
     if (!baseUrl) return null;
+    if (!payload?.senderToken) throw new Error('Community alert registration is not ready');
 
     return postJson(`${baseUrl}/broadcast-sos`, payload);
   }
@@ -143,8 +144,9 @@ class CommunityAlertServiceClass {
     const audioBase64 = evidence.audioUri
       ? await FileSystem.readAsStringAsync(evidence.audioUri, { encoding: FileSystem.EncodingType.Base64 })
       : '';
-    return postJson(`${baseUrl}/evidence/upload`, { ownerToken, evidenceId: evidence.id,
+    const result = await postJson(`${baseUrl}/evidence/upload`, { ownerToken, evidenceId: evidence.id,
       startedAt: evidence.startedAt, endedAt: evidence.endedAt, locations: evidence.locations || [], audioBase64 });
+    return { ...result, accessUrl: result?.accessPath ? `${baseUrl}${result.accessPath}` : '' };
   }
 
   async deleteEvidence({ serverUrl, ownerToken, duress = false }) {
