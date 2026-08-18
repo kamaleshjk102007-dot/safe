@@ -105,6 +105,12 @@ export default function CommunityAlertScreen() {
     Linking.openURL(`geo:${lat},${lng}?q=${lat},${lng}(Community SOS)`);
   }
 
+  function openEvidence(path) {
+    if (!path || !state.alertServerUrl) return;
+    const baseUrl = state.alertServerUrl.trim().replace(/\/+$/, '');
+    Linking.openURL(`${baseUrl}${path}`).catch(() => Alert.alert('Audio Unavailable', 'Could not open this evidence audio.'));
+  }
+
   async function acknowledgeAlert() {
     try {
       const result = await CommunityAlertService.acknowledgeSOS({
@@ -150,6 +156,19 @@ export default function CommunityAlertScreen() {
               <Text style={styles.senderName}>{senderName}</Text>
             </View>
           </View>
+
+          {Array.isArray(alert.evidenceLinks) && alert.evidenceLinks.length > 0 && (
+            <View style={styles.card}>
+              <Text style={styles.cardLabel}>LIVE EVIDENCE AUDIO</Text>
+              <Text style={styles.evidenceHelp}>New 10-second parts appear here while the SOS remains active.</Text>
+              {[...alert.evidenceLinks].slice(-5).reverse().map((item, index) => (
+                <TouchableOpacity key={item.id} style={styles.evidenceBtn} onPress={() => openEvidence(item.path)}>
+                  <Ionicons name="play-circle" size={20} color={COLORS.primary} />
+                  <Text style={styles.evidenceText}>Play audio part {alert.evidenceLinks.length - index}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          )}
 
           <TouchableOpacity style={[styles.respondBtn, acknowledged && styles.respondBtnDone]} onPress={acknowledgeAlert} disabled={acknowledged}>
             <Ionicons name={acknowledged ? 'checkmark-circle' : 'navigate'} size={20} color="#fff" />
@@ -255,6 +274,10 @@ const styles = StyleSheet.create({
     alignSelf: 'flex-start',
   },
   mapBtnText: { color: COLORS.primary, fontSize: 12, fontWeight: '600' },
+  evidenceHelp: { color: COLORS.muted, fontSize: 12, lineHeight: 18, marginBottom: 8 },
+  evidenceBtn: { minHeight: 48, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 12,
+    marginTop: 8, borderRadius: 10, backgroundColor: '#29b6f622', borderWidth: 1, borderColor: '#29b6f644' },
+  evidenceText: { color: COLORS.text, fontSize: 13, fontWeight: '700' },
 
   dismissBtn: {
     backgroundColor: '#1a2a1a',

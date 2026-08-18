@@ -227,8 +227,28 @@ const server = http.createServer(async (req, res) => {
         fs.writeFileSync(path.join(EVIDENCE_DIR, `${ownerId}-${evidenceId}.json`), JSON.stringify(record));
         const files = ownerEvidenceFiles(body.ownerToken).map(name => ({ name, time: fs.statSync(path.join(EVIDENCE_DIR, name)).mtimeMs })).sort((a, b) => b.time - a.time);
         files.slice(360).forEach(item => fs.unlinkSync(path.join(EVIDENCE_DIR, item.name)));
+        const accessPath = `/evidence/audio?id=${encodeURIComponent(evidenceId)}&key=${encodeURIComponent(accessKey)}`;
+        if (body.alertId) {
+          const alerts = loadAlerts();
+          const alertIndex = alerts.findIndex(item => item.id === body.alertId);
+          if (alertIndex >= 0 && alerts[alertIndex].senderToken === body.ownerToken) {
+            const evidenceLinks = Array.isArray(alerts[alertIndex].evidenceLinks) ? alerts[alertIndex].evidenceLinks : [];
+            const evidenceLink = { id: evidenceId, path: accessPath, createdAt: record.uploadedAt };
+            alerts[alertIndex].evidenceLinks = [...evidenceLinks.filter(item => item.id !== evidenceId), evidenceLink].slice(-360);
+            const recipientTokens = loadTokens().filter(entry => (alerts[alertIndex].notifiedTokens || []).includes(entry.token));
+            await sendExpoPushNotifications(recipientTokens.map(entry => ({
+              to: entry.token, sound: 'default', title: 'New SOS evidence available',
+              body: 'A new 10-second emergency audio part is available.',
+              data: { remoteBroadcast: true, evidenceUpdate: true, alertId: body.alertId, evidenceLinks: alerts[alertIndex].evidenceLinks },
+              priority: 'high', channelId: 'community-alerts',
+            }))).catch(() => null);
+            const evidenceEvent = { id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, evidenceUpdate: true,
+              targetAlertId: body.alertId, evidenceLinks: alerts[alertIndex].evidenceLinks };
+            saveAlerts([evidenceEvent, ...alerts]);
+          }
+        }
         return json(res, 200, { ok: true, evidenceId, uploadedAt: record.uploadedAt,
-          accessPath: `/evidence/audio?id=${encodeURIComponent(evidenceId)}&key=${encodeURIComponent(accessKey)}` });
+          accessPath });
       } catch (error) { return clientError(res, error); }
     }
 

@@ -14,6 +14,7 @@ import {
   Alert,
   NativeModules,
   AppState,
+  BackHandler,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -58,7 +59,8 @@ export default function EmergencyScreen() {
     if (!evidence) return;
     dispatch({ type: 'ADD_EVIDENCE', payload: { ...evidence, backupStatus: 'syncing' } });
     try {
-      const result = await CommunityAlertService.uploadEvidence({ serverUrl: state.alertServerUrl, ownerToken: state.expoPushToken, evidence });
+      const result = await CommunityAlertService.uploadEvidence({ serverUrl: state.alertServerUrl, ownerToken: state.expoPushToken,
+        alertId: state.activeAlertId, evidence });
       dispatch({ type: 'UPDATE_EVIDENCE', payload: { id: evidence.id, backupStatus: result ? 'backed_up' : 'local_only', uploadedAt: result?.uploadedAt } });
       if (result?.accessUrl) {
         const contactNumbers = state.contacts.map(contact => contact.phone).filter(Boolean);
@@ -84,6 +86,12 @@ export default function EmergencyScreen() {
       KeepAwake.deactivateKeepAwake().catch(() => {});
     };
   }, []);
+
+  useEffect(() => {
+    if (!dismissed) return undefined;
+    const subscription = BackHandler.addEventListener('hardwareBackPress', () => true);
+    return () => subscription.remove();
+  }, [dismissed]);
 
   useEffect(() => {
     if (!state.evidenceConsent || !state.sosActive) return undefined;
@@ -233,13 +241,10 @@ export default function EmergencyScreen() {
 
   async function confirmSafe() {
     if (state.duressPasskey && passkeyEntry === state.duressPasskey) {
-      const evidence = await EvidenceService.stop().catch(() => null);
-      await persistEvidence(evidence);
       NativeModules.EmergencyCall?.cancelCalls();
       Vibration.cancel();
-      dispatch({ type: 'DISMISS_SOS' });
       setPasskeyVisible(false);
-      navigation.goBack();
+      setDismissed(true);
       return;
     }
     if (passkeyEntry !== state.safetyPasskey) {
@@ -296,6 +301,21 @@ export default function EmergencyScreen() {
   }[state.triggerSource] || 'Unknown';
 
   const elapsed = `${Math.floor(elapsedSeconds / 60).toString().padStart(2, '0')}:${(elapsedSeconds % 60).toString().padStart(2, '0')}`;
+
+  if (dismissed && state.sosActive) {
+    return (
+      <SafeAreaView style={styles.discreetContainer}>
+        <StatusBar barStyle="light-content" backgroundColor="#06131F" />
+        <TouchableOpacity style={styles.discreetMark} activeOpacity={1} delayLongPress={2000}
+          onLongPress={() => { setDismissed(false); setPasskeyEntry(''); setPasskeyVisible(true); }}>
+          <Ionicons name="shield-checkmark" size={34} color="#06131F" />
+        </TouchableOpacity>
+        <Text style={styles.discreetTitle}>RESQ 360</Text>
+        <Text style={styles.discreetMessage}>Safety check completed</Text>
+        <Text style={styles.discreetSubtext}>You can close the app.</Text>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <Animated.View style={[styles.container, { backgroundColor: bgColor }]}>
@@ -424,6 +444,11 @@ export default function EmergencyScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
+  discreetContainer: { flex: 1, backgroundColor: '#06131F', alignItems: 'center', justifyContent: 'center', padding: 24 },
+  discreetMark: { width: 72, height: 72, borderRadius: 24, backgroundColor: '#00C2A8', alignItems: 'center', justifyContent: 'center' },
+  discreetTitle: { color: '#F4FAFC', fontSize: 24, fontWeight: '800', marginTop: 20 },
+  discreetMessage: { color: '#91A9B8', fontSize: 15, marginTop: 12 },
+  discreetSubtext: { color: '#607D8B', fontSize: 12, marginTop: 8 },
   scroll: { padding: 20, paddingTop: 10 },
 
   alertHeader: {

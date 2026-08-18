@@ -75,6 +75,11 @@ function AppInner() {
         return;
       }
 
+      if (payload.evidenceUpdate && payload.alertId) {
+        dispatch({ type: 'UPDATE_REMOTE_ALERT', payload: { alertId: payload.alertId, evidenceLinks: payload.evidenceLinks || [] } });
+        return;
+      }
+
       if (payload?.lat === undefined || payload?.lng === undefined) return;
 
       // Never process our own broadcast (belt-and-suspenders alongside the
@@ -213,6 +218,11 @@ function AppInner() {
 
           if (alert.safeResolved) {
             handleIncomingCommunityAlert({ remoteBroadcast: true, safeResolved: true, alertId: alert.targetAlertId, resolvedAt: alert.resolvedAt });
+            continue;
+          }
+          if (alert.evidenceUpdate) {
+            handleIncomingCommunityAlert({ remoteBroadcast: true, evidenceUpdate: true,
+              alertId: alert.targetAlertId, evidenceLinks: alert.evidenceLinks || [] });
             continue;
           }
           if (alert.locationUpdate) {

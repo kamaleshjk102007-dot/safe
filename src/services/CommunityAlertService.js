@@ -138,13 +138,13 @@ class CommunityAlertServiceClass {
     });
   }
 
-  async uploadEvidence({ serverUrl, ownerToken, evidence }) {
+  async uploadEvidence({ serverUrl, ownerToken, alertId, evidence }) {
     const baseUrl = normalizeUrl(serverUrl);
     if (!baseUrl || !ownerToken || !evidence) return null;
     const audioBase64 = evidence.audioUri
       ? await FileSystem.readAsStringAsync(evidence.audioUri, { encoding: FileSystem.EncodingType.Base64 })
       : '';
-    const result = await postJson(`${baseUrl}/evidence/upload`, { ownerToken, evidenceId: evidence.id,
+    const result = await postJson(`${baseUrl}/evidence/upload`, { ownerToken, alertId, evidenceId: evidence.id,
       startedAt: evidence.startedAt, endedAt: evidence.endedAt, locations: evidence.locations || [], audioBase64 });
     return { ...result, accessUrl: result?.accessPath ? `${baseUrl}${result.accessPath}` : '' };
   }
