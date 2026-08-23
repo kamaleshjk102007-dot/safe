@@ -110,9 +110,7 @@ export default function CommunityAlertScreen() {
 
   function openMap() {
     if (!alert) return;
-    const { lat, lng } = alert;
-    if (lat === undefined || lat === null || lng === undefined || lng === null) return;
-    Linking.openURL(`geo:${lat},${lng}?q=${lat},${lng}(Community SOS)`);
+    navigation.navigate('Main', { screen: 'Map', params: { alertId: alert.alertId } });
   }
 
   function openEvidence(path) {
@@ -131,6 +129,7 @@ export default function CommunityAlertScreen() {
       });
       dispatch({ type: 'UPDATE_REMOTE_ALERT', payload: { alertId: alert.alertId, acknowledgements: result.acknowledgements || [] } });
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+      navigation.navigate('Main', { screen: 'Map', params: { alertId: alert.alertId } });
     } catch (error) {
       Alert.alert('Could Not Acknowledge', error.message || 'Try again.');
     }
@@ -230,7 +229,7 @@ export default function CommunityAlertScreen() {
 
           <TouchableOpacity style={[styles.respondBtn, acknowledged && styles.respondBtnDone]} onPress={acknowledgeAlert} disabled={acknowledged}>
             <Ionicons name={acknowledged ? 'checkmark-circle' : 'navigate'} size={20} color="#fff" />
-            <Text style={styles.respondText}>{acknowledged ? t(state.language, 'responding') : t(state.language, 'canHelp')}</Text>
+            <Text style={styles.respondText}>{acknowledged ? t(state.language, 'responding') : "I'M COMING"}</Text>
           </TouchableOpacity>
 
           <View style={styles.arrivalCard}>
@@ -255,14 +254,16 @@ export default function CommunityAlertScreen() {
               <Text style={styles.reachedText}>{arrivalState === 'checking' ? 'COMPARING GPS…' : arrivalState === 'verified' ? 'I REACHED · VERIFIED' : 'I REACHED'}</Text>
             </TouchableOpacity>
 
-            <TouchableOpacity
-              style={[styles.moreHelpBtn, arrivalState !== 'verified' && styles.moreHelpLocked, moreHelpSent && styles.moreHelpSent]}
-              onPress={requestMoreHelp}
-              disabled={arrivalState !== 'verified' || moreHelpSent}
-            >
-              <Ionicons name={moreHelpSent ? 'checkmark-circle' : arrivalState === 'verified' ? 'megaphone' : 'lock-closed'} size={20} color={arrivalState === 'verified' ? '#fff' : COLORS.muted} />
-              <Text style={[styles.moreHelpText, arrivalState !== 'verified' && styles.moreHelpTextLocked]}>{moreHelpSent ? 'MORE HELP REQUESTED' : 'NEED MORE HELP'}</Text>
-            </TouchableOpacity>
+            {arrivalState === 'verified' && (
+              <TouchableOpacity
+                style={[styles.moreHelpBtn, moreHelpSent && styles.moreHelpSent]}
+                onPress={requestMoreHelp}
+                disabled={moreHelpSent}
+              >
+                <Ionicons name={moreHelpSent ? 'checkmark-circle' : 'megaphone'} size={20} color="#fff" />
+                <Text style={styles.moreHelpText}>{moreHelpSent ? 'MORE HELP REQUESTED' : 'NEED MORE HELP'}</Text>
+              </TouchableOpacity>
+            )}
           </View>
 
           <View style={styles.card}>

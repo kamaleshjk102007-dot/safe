@@ -1,278 +1,32 @@
-import React, { useState, useEffect, useRef } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  TouchableOpacity,
-  ActivityIndicator,
-} from 'react-native';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { WebView } from 'react-native-webview';
 import { Ionicons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
-
+import * as Haptics from 'expo-haptics';
 import { useAppContext } from '../store/AppContext';
+import { CommunityAlertService } from '../services/CommunityAlertService';
+import { normalizeDisplayName } from '../utils/displayName';
 
-const COLORS = {
-  bg: '#06131F',
-  card: '#0C2233',
-  border: '#1C4057',
-  primary: '#00C2A8',
-  text: '#ffffff',
-  muted: '#91A9B8',
-};
+const COLORS={bg:'#06131F',card:'#0C2233',border:'#1C4057',primary:'#00C2A8',text:'#fff',muted:'#91A9B8'};
 
-function buildMapHTML(lat, lng, label = 'Emergency Location') {
-  return `
-<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8"/>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { background: #06131F; }
-    #map { width: 100vw; height: 100vh; }
-    .custom-icon {
-      background: #00C2A8;
-      border-radius: 50%;
-      width: 20px; height: 20px;
-      border: 3px solid #fff;
-      box-shadow: 0 0 15px #00C2A8aa;
-    }
-  </style>
-</head>
-<body>
-  <div id="map"></div>
-  <script>
-    var map = L.map('map', {
-      center: [${lat}, ${lng}],
-      zoom: 16,
-      zoomControl: true,
-    });
+function buildMapHTML(sender,reacher){const initial=sender||reacher||{latitude:12.9716,longitude:77.5946};return `<!DOCTYPE html><html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/><script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script><style>*{margin:0;padding:0;box-sizing:border-box}body{background:#06131F}#map{width:100vw;height:100vh}.marker{padding:5px 8px;border-radius:14px;color:#fff;font:700 12px sans-serif;white-space:nowrap;border:2px solid #fff;box-shadow:0 0 12px #0008}.sender{background:#D32F2F}.reacher{background:#1565C0}.live{font-size:9px;margin-left:4px;opacity:.9}</style></head><body><div id="map"></div><script>
+var map=L.map('map',{center:[${initial.latitude},${initial.longitude}],zoom:16,zoomControl:true});L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{attribution:'© OpenStreetMap contributors',maxZoom:19}).addTo(map);var senderMarker=null,reacherMarker=null,routeLine=null,lastS=null,lastR=null,timer=null;
+function icon(html,kind){return L.divIcon({className:'',html:'<div class="marker '+kind+'">'+html+'</div>',iconSize:[110,30],iconAnchor:[55,15]})}function meters(a,b){if(!a||!b)return Infinity;var p=Math.PI/180,d1=(b.lat-a.lat)*p,d2=(b.lng-a.lng)*p,x=Math.sin(d1/2)**2+Math.cos(a.lat*p)*Math.cos(b.lat*p)*Math.sin(d2/2)**2;return 12742000*Math.atan2(Math.sqrt(x),Math.sqrt(1-x))}function fit(){if(senderMarker&&reacherMarker)map.fitBounds(L.latLngBounds([senderMarker.getLatLng(),reacherMarker.getLatLng()]),{padding:[55,55],maxZoom:17})}
+async function route(force){if(!senderMarker||!reacherMarker)return;var s=senderMarker.getLatLng(),r=reacherMarker.getLatLng();if(!force&&meters(s,lastS)<20&&meters(r,lastR)<20)return;lastS={lat:s.lat,lng:s.lng};lastR={lat:r.lat,lng:r.lng};clearTimeout(timer);timer=setTimeout(async function(){try{var response=await fetch('https://router.project-osrm.org/route/v1/driving/'+r.lng+','+r.lat+';'+s.lng+','+s.lat+'?alternatives=true&overview=full&geometries=geojson'),data=await response.json();if(!data.routes||!data.routes.length)throw Error();var best=data.routes.slice().sort(function(a,b){return a.duration-b.duration})[0];if(routeLine)map.removeLayer(routeLine);routeLine=L.geoJSON(best.geometry,{style:{color:'#00C2A8',weight:6,opacity:.85}}).addTo(map);fit();window.ReactNativeWebView.postMessage(JSON.stringify({type:'route',distanceMeters:best.distance,durationSeconds:best.duration,alternatives:data.routes.length}))}catch(e){window.ReactNativeWebView.postMessage(JSON.stringify({type:'routeError'}))}},350)}
+function update(d){if(d.sender){var s=[d.sender.latitude,d.sender.longitude];if(!senderMarker)senderMarker=L.marker(s,{icon:icon('🚨 Sender <span class="live">LIVE</span>','sender')}).addTo(map);else senderMarker.setLatLng(s);senderMarker.bindPopup('<b>🔴 Sender — Emergency Location</b><br>Location updating')}if(d.reacher){var r=[d.reacher.latitude,d.reacher.longitude];if(!reacherMarker)reacherMarker=L.marker(r,{icon:icon('● Reacher','reacher')}).addTo(map);else reacherMarker.setLatLng(r);reacherMarker.bindPopup('<b>🔵 Reacher — Your Location</b><br>Location sharing active')}route(!!d.navigate)}window.addEventListener('message',function(e){try{update(JSON.parse(e.data))}catch(x){}});document.addEventListener('message',function(e){try{update(JSON.parse(e.data))}catch(x){}});update(${JSON.stringify({sender,reacher})});</script></body></html>`}
 
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '© OpenStreetMap contributors',
-      maxZoom: 19,
-    }).addTo(map);
+export default function MapScreen({route}){const{state,dispatch}=useAppContext(),webviewRef=useRef(null);const[loading,setLoading]=useState(true),[liveTracking,setLiveTracking]=useState(false),[reacherLocation,setReacherLocation]=useState(null),[routeInfo,setRouteInfo]=useState(null),[arrivalState,setArrivalState]=useState('idle'),[moreHelpSent,setMoreHelpSent]=useState(false);const requestedId=route?.params?.alertId;const remoteAlert=useMemo(()=>state.remoteAlerts.find(a=>a.alertId===requestedId)||state.remoteAlerts[0],[state.remoteAlerts,requestedId]);const local=state.currentLocation?{latitude:state.currentLocation.latitude,longitude:state.currentLocation.longitude}:null;const sender=remoteAlert?.lat!=null&&remoteAlert?.lng!=null?{latitude:Number(remoteAlert.lat),longitude:Number(remoteAlert.lng)}:state.sosActive?local:null;const navigating=Boolean(remoteAlert&&!remoteAlert.resolved);const shown=sender||local||{latitude:12.9716,longitude:77.5946};
+const initialMapHtml=useRef(buildMapHTML(sender,navigating?local:null));
+function post(extra={}){webviewRef.current?.postMessage(JSON.stringify({sender,reacher:navigating?(reacherLocation||local):null,...extra}))}useEffect(()=>{post()},[sender?.latitude,sender?.longitude,reacherLocation?.latitude,reacherLocation?.longitude]);
+useEffect(()=>{if(!liveTracking)return;let sub;Location.requestForegroundPermissionsAsync().then(p=>{if(p.status!=='granted')throw Error('Location permission is required for navigation.');return Location.watchPositionAsync({accuracy:Location.Accuracy.High,timeInterval:3000,distanceInterval:5},p=>setReacherLocation({latitude:p.coords.latitude,longitude:p.coords.longitude,accuracy:p.coords.accuracy}))}).then(s=>{sub=s}).catch(e=>{setLiveTracking(false);Alert.alert('Location Unavailable',e.message)});return()=>sub?.remove?.()},[liveTracking]);useEffect(()=>{if(navigating&&!liveTracking)setLiveTracking(true)},[requestedId,navigating]);
+async function verify(){if(!remoteAlert||!sender)return Alert.alert('Location Unavailable','The sender live location is not available.');setArrivalState('checking');try{const p=await Location.requestForegroundPermissionsAsync();if(p.status!=='granted')throw Error('Location permission is required to verify arrival.');const pos=await Location.getCurrentPositionAsync({accuracy:Location.Accuracy.Highest}),current={latitude:pos.coords.latitude,longitude:pos.coords.longitude,accuracy:pos.coords.accuracy};setReacherLocation(current);const result=await CommunityAlertService.verifyArrival({serverUrl:state.alertServerUrl,alertId:remoteAlert.alertId,responderToken:state.expoPushToken,responderName:normalizeDisplayName(state.displayName),location:current});setArrivalState('verified');dispatch({type:'UPDATE_REMOTE_ALERT',payload:{alertId:remoteAlert.alertId,verifiedArrival:result.arrival}});Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(()=>{})}catch(e){setArrivalState('failed');Alert.alert('⚠ YOU HAVE NOT REACHED THE SENDER',e.message||'Move closer and try again.')}}
+async function help(){try{const r=await CommunityAlertService.requestMoreHelp({serverUrl:state.alertServerUrl,alertId:remoteAlert.alertId,responderToken:state.expoPushToken});setMoreHelpSent(true);Alert.alert('Additional Help Requested',`${r.recipients||0} community responder(s) alerted.`)}catch(e){Alert.alert('Could Not Request Help',e.message||'Try again.')}}function onMessage(e){try{const d=JSON.parse(e.nativeEvent.data);if(d.type==='route')setRouteInfo(d)}catch(_){}}const distance=routeInfo?(routeInfo.distanceMeters<1000?`${Math.round(routeInfo.distanceMeters)} m`:`${(routeInfo.distanceMeters/1000).toFixed(1)} km`):'Calculating…',eta=routeInfo?`${Math.max(1,Math.round(routeInfo.durationSeconds/60))} min`:'—';
+return <SafeAreaView style={s.container}><View style={s.header}><View><Text style={s.title}>Live Map</Text>{navigating&&<Text style={s.sosBadge}>EMERGENCY ACTIVE</Text>}</View><TouchableOpacity style={[s.trackBtn,liveTracking&&s.trackActive]} onPress={()=>setLiveTracking(v=>!v)}><Ionicons name={liveTracking?'radio':'radio-outline'} size={16} color={liveTracking?'#fff':COLORS.muted}/><Text style={[s.trackText,liveTracking&&{color:'#fff'}]}>{liveTracking?'LIVE':'Track'}</Text></TouchableOpacity></View><View style={s.coords}><Ionicons name="location" size={12} color={navigating?'#EF5350':COLORS.primary}/><Text style={s.coordText}>{shown.latitude.toFixed(5)}, {shown.longitude.toFixed(5)}</Text>{navigating&&<View style={s.liveBadge}><Text style={s.liveText}>LIVE</Text></View>}</View>
+{navigating&&<View style={s.status}><View style={s.statusRow}><Text style={s.senderStatus}>🔴 SENDER — LIVE</Text><Text style={s.detail}>Location updating</Text></View><View style={s.statusRow}><Text style={s.youStatus}>🔵 YOU</Text><Text style={s.detail}>{liveTracking?'Location sharing active':'Tracking paused'}</Text></View><View style={s.metrics}><Text style={s.metric}>Sender: {distance} away</Text><Text style={s.metric}>ETA: {eta}</Text></View></View>}
+<View style={{flex:1}}>{loading&&<View style={s.loading}><ActivityIndicator size="large" color={COLORS.primary}/><Text style={s.loadingText}>Loading OpenStreetMap...</Text></View>}<WebView ref={webviewRef} source={{html:initialMapHtml.current}} style={{flex:1,backgroundColor:COLORS.bg}} onLoad={()=>{setLoading(false);post({navigate:navigating})}} onMessage={onMessage} javaScriptEnabled scrollEnabled={false}/></View>
+{navigating&&<View style={s.nav}><Text style={s.aiTitle}>AI-Assisted Route Recommendation</Text><Text style={s.aiHelp}>Route recommendation considers available route, distance, ETA and available safety/access information.</Text><View style={s.actions}><TouchableOpacity style={s.coming} onPress={()=>{setLiveTracking(true);post({navigate:true})}}><Text style={s.actionText}>I'M COMING</Text></TouchableOpacity><TouchableOpacity style={[s.reached,arrivalState==='verified'&&s.verified]} onPress={verify} disabled={arrivalState==='checking'||arrivalState==='verified'}><Text style={s.actionText}>{arrivalState==='checking'?'CHECKING…':arrivalState==='verified'?'✓ ARRIVAL VERIFIED':'I REACHED'}</Text></TouchableOpacity></View>{arrivalState==='failed'&&<Text style={s.failed}>⚠ YOU HAVE NOT REACHED THE SENDER</Text>}{arrivalState==='verified'&&<TouchableOpacity style={[s.help,moreHelpSent&&{backgroundColor:'#7B1F1F'}]} onPress={help} disabled={moreHelpSent}><Text style={s.actionText}>{moreHelpSent?'HELP REQUEST SENT':'NEED MORE HELP'}</Text></TouchableOpacity>}</View>}
+{state.historyEvents.length>0&&<View style={s.history}><Ionicons name="time-outline" size={12} color={COLORS.muted}/><Text style={s.historyText}>{state.historyEvents.length} past event{state.historyEvents.length!==1?'s':''} logged</Text></View>}</SafeAreaView>}
 
-    var icon = L.divIcon({
-      className: '',
-      html: '<div class="custom-icon"></div>',
-      iconSize: [20, 20],
-      iconAnchor: [10, 10],
-    });
-
-    var marker = L.marker([${lat}, ${lng}], { icon: icon })
-      .addTo(map)
-      .bindPopup('<b>${label}</b><br>Lat: ${lat.toFixed(5)}<br>Lng: ${lng.toFixed(5)}', { maxWidth: 200 })
-      .openPopup();
-
-    // Accuracy circle
-    L.circle([${lat}, ${lng}], {
-      color: '#00C2A8',
-      fillColor: '#00C2A820',
-      fillOpacity: 0.3,
-      radius: 50,
-    }).addTo(map);
-
-    // Listen for update messages
-    window.addEventListener('message', function(e) {
-      try {
-        var data = JSON.parse(e.data);
-        if (data.lat !== undefined && data.lat !== null && data.lng !== undefined && data.lng !== null) {
-          var newLatLng = L.latLng(data.lat, data.lng);
-          marker.setLatLng(newLatLng);
-          map.panTo(newLatLng);
-        }
-      } catch(err) {}
-    });
-
-    // Dark tile layer alternative (CARTO)
-    // Uncomment for dark mode map:
-    // L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-    //   attribution: '©OSM ©CARTO', maxZoom: 19,
-    // }).addTo(map);
-  </script>
-</body>
-</html>
-`;
-}
-
-export default function MapScreen() {
-  const { state } = useAppContext();
-  const webviewRef = useRef(null);
-  const [loading, setLoading] = useState(true);
-  const [liveTracking, setLiveTracking] = useState(false);
-  const trackingRef = useRef(null);
-
-  const lat = state.currentLocation?.latitude || 12.9716;
-  const lng = state.currentLocation?.longitude || 77.5946;
-  const isSOS = state.sosActive;
-
-  useEffect(() => {
-    if (state.currentLocation && webviewRef.current) {
-      webviewRef.current.postMessage(
-        JSON.stringify({ lat: state.currentLocation.latitude, lng: state.currentLocation.longitude })
-      );
-    }
-  }, [state.currentLocation]);
-
-  useEffect(() => {
-    if (liveTracking) {
-      trackingRef.current = setInterval(async () => {
-        try {
-          const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
-          if (webviewRef.current) {
-            webviewRef.current.postMessage(
-              JSON.stringify({ lat: loc.coords.latitude, lng: loc.coords.longitude })
-            );
-          }
-        } catch (e) {}
-      }, 5000);
-    } else {
-      clearInterval(trackingRef.current);
-    }
-    return () => clearInterval(trackingRef.current);
-  }, [liveTracking]);
-
-  return (
-    <SafeAreaView style={styles.container}>
-      {/* Header */}
-      <View style={styles.header}>
-        <View>
-          <Text style={styles.title}>Live Map</Text>
-          {isSOS && <Text style={styles.sosBadge}>EMERGENCY ACTIVE</Text>}
-        </View>
-        <TouchableOpacity
-          style={[styles.trackBtn, liveTracking && styles.trackBtnActive]}
-          onPress={() => setLiveTracking(!liveTracking)}
-        >
-          <Ionicons
-            name={liveTracking ? 'radio' : 'radio-outline'}
-            size={16}
-            color={liveTracking ? '#fff' : COLORS.muted}
-          />
-          <Text style={[styles.trackText, liveTracking && styles.trackTextActive]}>
-            {liveTracking ? 'LIVE' : 'Track'}
-          </Text>
-        </TouchableOpacity>
-      </View>
-
-      {/* Coords bar */}
-      <View style={styles.coordBar}>
-        <Ionicons name="location" size={12} color={COLORS.primary} />
-        <Text style={styles.coordText}>
-          {lat.toFixed(5)}, {lng.toFixed(5)}
-        </Text>
-        {isSOS && (
-          <View style={styles.sosDot}>
-            <Text style={styles.sosText}>SOS</Text>
-          </View>
-        )}
-      </View>
-
-      {/* Map */}
-      <View style={{ flex: 1 }}>
-        {loading && (
-          <View style={styles.loadingOverlay}>
-            <ActivityIndicator size="large" color={COLORS.primary} />
-            <Text style={styles.loadingText}>Loading OpenStreetMap...</Text>
-          </View>
-        )}
-        <WebView
-          ref={webviewRef}
-          source={{ html: buildMapHTML(lat, lng, isSOS ? 'SOS LOCATION' : 'My Location') }}
-          style={{ flex: 1, backgroundColor: '#06131F' }}
-          onLoad={() => setLoading(false)}
-          javaScriptEnabled
-          scrollEnabled={false}
-          onError={(e) => console.error('[Map] WebView error:', e.nativeEvent)}
-        />
-      </View>
-
-      {/* History locations overlay */}
-      {state.historyEvents.length > 0 && (
-        <View style={styles.historyBar}>
-          <Ionicons name="time-outline" size={12} color={COLORS.muted} />
-          <Text style={styles.historyText}>
-            {state.historyEvents.length} past event{state.historyEvents.length !== 1 ? 's' : ''} logged
-          </Text>
-        </View>
-      )}
-    </SafeAreaView>
-  );
-}
-
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: COLORS.bg },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: COLORS.border,
-  },
-  title: { fontSize: 18, fontWeight: '800', color: COLORS.text },
-  sosBadge: { fontSize: 10, color: COLORS.primary, fontWeight: '700', marginTop: 2 },
-  trackBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    backgroundColor: COLORS.card,
-  },
-  trackBtnActive: { backgroundColor: COLORS.primary, borderColor: COLORS.primary },
-  trackText: { fontSize: 12, color: COLORS.muted, fontWeight: '600' },
-  trackTextActive: { color: '#fff' },
-
-  coordBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    backgroundColor: COLORS.card,
-    borderBottomWidth: 1,
-    borderBottomColor: COLORS.border,
-  },
-  coordText: { fontSize: 12, color: COLORS.muted, fontFamily: 'monospace', flex: 1 },
-  sosDot: {
-    backgroundColor: COLORS.primary,
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 10,
-  },
-  sosText: { fontSize: 10, color: '#fff', fontWeight: '700' },
-
-  loadingOverlay: {
-    position: 'absolute',
-    top: 0, left: 0, right: 0, bottom: 0,
-    backgroundColor: COLORS.bg,
-    alignItems: 'center',
-    justifyContent: 'center',
-    zIndex: 10,
-    gap: 12,
-  },
-  loadingText: { color: COLORS.muted, fontSize: 13 },
-
-  historyBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    backgroundColor: COLORS.card,
-    borderTopWidth: 1,
-    borderTopColor: COLORS.border,
-  },
-  historyText: { fontSize: 11, color: COLORS.muted },
-});
+const s=StyleSheet.create({container:{flex:1,backgroundColor:COLORS.bg},header:{flexDirection:'row',justifyContent:'space-between',alignItems:'center',paddingHorizontal:16,paddingVertical:12,borderBottomWidth:1,borderBottomColor:COLORS.border},title:{fontSize:18,fontWeight:'800',color:COLORS.text},sosBadge:{fontSize:10,color:'#EF5350',fontWeight:'700',marginTop:2},trackBtn:{flexDirection:'row',alignItems:'center',gap:5,paddingHorizontal:12,paddingVertical:6,borderRadius:20,borderWidth:1,borderColor:COLORS.border,backgroundColor:COLORS.card},trackActive:{backgroundColor:COLORS.primary,borderColor:COLORS.primary},trackText:{fontSize:12,color:COLORS.muted,fontWeight:'600'},coords:{flexDirection:'row',alignItems:'center',gap:6,paddingHorizontal:16,paddingVertical:8,backgroundColor:COLORS.card,borderBottomWidth:1,borderBottomColor:COLORS.border},coordText:{fontSize:12,color:COLORS.muted,fontFamily:'monospace',flex:1},liveBadge:{backgroundColor:'#D32F2F',paddingHorizontal:8,paddingVertical:2,borderRadius:10},liveText:{fontSize:10,color:'#fff',fontWeight:'800'},status:{backgroundColor:COLORS.card,paddingHorizontal:16,paddingVertical:8,borderBottomWidth:1,borderBottomColor:COLORS.border},statusRow:{flexDirection:'row',justifyContent:'space-between',minHeight:20},senderStatus:{fontSize:11,color:'#FF8A80',fontWeight:'800'},youStatus:{fontSize:11,color:'#82B1FF',fontWeight:'800'},detail:{fontSize:11,color:COLORS.muted},metrics:{flexDirection:'row',justifyContent:'space-between',marginTop:4},metric:{fontSize:12,color:COLORS.text,fontWeight:'700'},loading:{position:'absolute',top:0,left:0,right:0,bottom:0,backgroundColor:COLORS.bg,alignItems:'center',justifyContent:'center',zIndex:10,gap:12},loadingText:{color:COLORS.muted,fontSize:13},nav:{padding:12,backgroundColor:COLORS.card,borderTopWidth:1,borderTopColor:COLORS.border},aiTitle:{fontSize:13,color:COLORS.text,fontWeight:'800'},aiHelp:{fontSize:10,color:COLORS.muted,lineHeight:14,marginTop:2},actions:{flexDirection:'row',gap:8,marginTop:8},coming:{flex:1,minHeight:44,borderRadius:10,backgroundColor:'#1565C0',alignItems:'center',justifyContent:'center'},reached:{flex:1,minHeight:44,borderRadius:10,backgroundColor:COLORS.primary,alignItems:'center',justifyContent:'center'},verified:{backgroundColor:'#00A843'},actionText:{fontSize:12,color:'#fff',fontWeight:'800'},failed:{fontSize:10,color:'#FF8A80',fontWeight:'800',textAlign:'center',marginTop:8},help:{minHeight:44,borderRadius:10,backgroundColor:'#D32F2F',alignItems:'center',justifyContent:'center',marginTop:8},history:{flexDirection:'row',alignItems:'center',gap:6,paddingHorizontal:16,paddingVertical:8,backgroundColor:COLORS.card,borderTopWidth:1,borderTopColor:COLORS.border},historyText:{fontSize:11,color:COLORS.muted}});
