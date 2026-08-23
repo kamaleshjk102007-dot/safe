@@ -28,3 +28,6 @@ server/evidence-vault/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+
+# Locally inspected government source assets without explicit redistribution licence
+data/coimbatore/30-critical-intersections.png
