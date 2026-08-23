@@ -20,6 +20,7 @@ const API_KEY = process.env.SAFEGUARD_ALERT_API_KEY || '';
 const MAX_SENDER_NAME_LENGTH = 40;
 const DEFAULT_SENDER_NAME = 'Someone';
 const ALERT_RADIUS_KM = Number(process.env.SAFEGUARD_ALERT_RADIUS_KM) || 1;
+const ARRIVAL_RADIUS_METERS = 150;
 
 function distanceKm(aLat, aLng, bLat, bLng) {
   const rad = value => value * Math.PI / 180;
@@ -397,6 +398,72 @@ const server = http.createServer(async (req, res) => {
         alerts[index].acknowledgements = [...current.filter(item => item.token !== acknowledgement.token), acknowledgement];
         saveAlerts(alerts);
         return json(res, 200, { ok: true, acknowledgements: alerts[index].acknowledgements });
+      } catch (error) { return clientError(res, error); }
+    }
+
+    if (req.method === 'POST' && req.url === '/verify-arrival') {
+      try {
+        if (!isAuthorized(req)) return json(res, 401, { error: 'Unauthorized' });
+        const body = await readJson(req); const alerts = loadAlerts();
+        const index = alerts.findIndex(alert => alert.id === body.alertId && !alert.locationUpdate);
+        if (index < 0) return json(res, 404, { error: 'Alert not found' });
+        if (alerts[index].resolved) return json(res, 409, { error: 'This SOS has already ended' });
+        if (!validateExpoToken(body.responderToken)) return json(res, 400, { error: 'Responder registration is invalid' });
+        if (!validateCoordinate(body.lat, -90, 90) || !validateCoordinate(body.lng, -180, 180)) {
+          return json(res, 400, { error: 'Responder location is invalid' });
+        }
+
+        const accuracy = Math.max(0, Number(body.accuracy) || 0);
+        if (accuracy > 100) return json(res, 422, { error: 'GPS accuracy is too low. Move outdoors and try again.' });
+        const distanceMeters = Math.round(distanceKm(alerts[index].lat, alerts[index].lng, Number(body.lat), Number(body.lng)) * 1000);
+        if (distanceMeters > ARRIVAL_RADIUS_METERS) {
+          return json(res, 422, { error: `You are ${distanceMeters} m away. Arrival verifies within ${ARRIVAL_RADIUS_METERS} m.`, distanceMeters, thresholdMeters: ARRIVAL_RADIUS_METERS });
+        }
+
+        const arrival = {
+          token: body.responderToken,
+          name: normalizeSenderName(body.responderName),
+          at: new Date().toISOString(),
+          distanceMeters,
+          accuracyMeters: Math.round(accuracy),
+        };
+        const arrivals = Array.isArray(alerts[index].verifiedArrivals) ? alerts[index].verifiedArrivals : [];
+        alerts[index].verifiedArrivals = [...arrivals.filter(item => item.token !== arrival.token), arrival];
+        saveAlerts(alerts);
+        return json(res, 200, { ok: true, verified: true, arrival, verifiedArrivals: alerts[index].verifiedArrivals });
+      } catch (error) { return clientError(res, error); }
+    }
+
+    if (req.method === 'POST' && req.url === '/request-more-help') {
+      try {
+        if (!isAuthorized(req)) return json(res, 401, { error: 'Unauthorized' });
+        const body = await readJson(req); const alerts = loadAlerts();
+        const index = alerts.findIndex(alert => alert.id === body.alertId && !alert.locationUpdate);
+        if (index < 0) return json(res, 404, { error: 'Alert not found' });
+        if (alerts[index].resolved) return json(res, 409, { error: 'This SOS has already ended' });
+        const arrival = (alerts[index].verifiedArrivals || []).find(item => item.token === body.responderToken);
+        if (!arrival) return json(res, 403, { error: 'Verified arrival is required before requesting more help' });
+
+        alerts[index].moreHelpRequests = [
+          ...(alerts[index].moreHelpRequests || []),
+          { token: body.responderToken, name: arrival.name, at: new Date().toISOString() },
+        ].slice(-20);
+        saveAlerts(alerts);
+        const recipients = loadTokens().filter(entry =>
+          entry.token !== body.responderToken &&
+          entry.token !== alerts[index].senderToken &&
+          (!alerts[index].senderInstallationId || entry.installationId !== alerts[index].senderInstallationId)
+        );
+        const messages = recipients.map(entry => ({
+          to: entry.token,
+          sound: 'default',
+          title: `🆘 ${arrival.name} needs more help`,
+          body: `A verified responder reached ${alerts[index].senderName}. Additional support is needed.`,
+          data: { lat: alerts[index].lat, lng: alerts[index].lng, source: 'VERIFIED RESPONDER', timestamp: new Date().toISOString(), remoteBroadcast: true, alertId: alerts[index].id, senderToken: alerts[index].senderToken, senderName: alerts[index].senderName, moreHelpRequested: true },
+          priority: 'high', ttl: 3600, tag: `more-help-${alerts[index].id}`, channelId: 'resq-community-emergency-v2',
+        }));
+        const result = await sendExpoPushNotifications(messages);
+        return json(res, 200, { ok: true, recipients: recipients.length, result });
       } catch (error) { return clientError(res, error); }
     }
 

@@ -157,6 +157,25 @@ class CommunityAlertServiceClass {
     return postJson(`${baseUrl}/acknowledge-sos`, { alertId, responderToken, responderName });
   }
 
+  async verifyArrival({ serverUrl, alertId, responderToken, responderName, location }) {
+    const baseUrl = normalizeUrl(serverUrl);
+    if (!baseUrl || !alertId || !location) throw new Error('Alert location is not available');
+    return postJson(`${baseUrl}/verify-arrival`, {
+      alertId,
+      responderToken,
+      responderName,
+      lat: location.latitude,
+      lng: location.longitude,
+      accuracy: location.accuracy,
+    });
+  }
+
+  async requestMoreHelp({ serverUrl, alertId, responderToken }) {
+    const baseUrl = normalizeUrl(serverUrl);
+    if (!baseUrl || !alertId) throw new Error('Alert is not available');
+    return postJson(`${baseUrl}/request-more-help`, { alertId, responderToken });
+  }
+
   async escalateSOS({ serverUrl, alertId, senderToken, radiusKm }) {
     const baseUrl = normalizeUrl(serverUrl);
     return postJson(`${baseUrl}/escalate-sos`, { alertId, senderToken, radiusKm });

@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -14,6 +14,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import * as Haptics from 'expo-haptics';
+import * as Location from 'expo-location';
 
 import { useAppContext } from '../store/AppContext';
 import { normalizeDisplayName } from '../utils/displayName';
@@ -53,6 +54,9 @@ export default function CommunityAlertScreen() {
   const queuedCount = state.remoteAlerts.length - 1;
   const senderName = normalizeDisplayName(alert?.senderName);
   const acknowledged = alert?.acknowledgements?.some(item => item.token === state.expoPushToken);
+  const [arrivalState, setArrivalState] = useState('idle');
+  const [arrivalDistance, setArrivalDistance] = useState(null);
+  const [moreHelpSent, setMoreHelpSent] = useState(false);
 
   useEffect(() => {
     // Vibration lives ONLY here, scoped to this screen instance — never
@@ -64,6 +68,12 @@ export default function CommunityAlertScreen() {
       // Stop vibration on unmount (user navigates away without tapping Close)
       Vibration.cancel();
     };
+  }, [alert?.alertId]);
+
+  useEffect(() => {
+    setArrivalState('idle');
+    setArrivalDistance(null);
+    setMoreHelpSent(false);
   }, [alert?.alertId]);
 
   useEffect(() => {
@@ -126,6 +136,54 @@ export default function CommunityAlertScreen() {
     }
   }
 
+  async function verifyReached() {
+    if (!hasLocation) {
+      Alert.alert('Location Unavailable', 'The sender location is not available for comparison.');
+      return;
+    }
+    setArrivalState('checking');
+    try {
+      const permission = await Location.requestForegroundPermissionsAsync();
+      if (permission.status !== 'granted') throw new Error('Location permission is required to verify arrival.');
+      const position = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Highest });
+      const result = await CommunityAlertService.verifyArrival({
+        serverUrl: state.alertServerUrl,
+        alertId: alert.alertId,
+        responderToken: state.expoPushToken,
+        responderName: normalizeDisplayName(state.displayName),
+        location: {
+          latitude: position.coords.latitude,
+          longitude: position.coords.longitude,
+          accuracy: position.coords.accuracy,
+        },
+      });
+      setArrivalDistance(result.arrival?.distanceMeters ?? 0);
+      setArrivalState('verified');
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+    } catch (error) {
+      setArrivalState('idle');
+      Alert.alert('Arrival Not Verified', error.message || 'Could not compare your GPS location.');
+    }
+  }
+
+  async function requestMoreHelp() {
+    try {
+      setArrivalState('sending-help');
+      const result = await CommunityAlertService.requestMoreHelp({
+        serverUrl: state.alertServerUrl,
+        alertId: alert.alertId,
+        responderToken: state.expoPushToken,
+      });
+      setArrivalState('verified');
+      setMoreHelpSent(true);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(() => {});
+      Alert.alert('Additional Help Requested', `${result.recipients || 0} community responder(s) were alerted.`);
+    } catch (error) {
+      setArrivalState('verified');
+      Alert.alert('Could Not Request Help', error.message || 'Try again.');
+    }
+  }
+
   if (!alert) {
     return <View style={{ flex: 1, backgroundColor: COLORS.bg }} />;
   }
@@ -174,6 +232,38 @@ export default function CommunityAlertScreen() {
             <Ionicons name={acknowledged ? 'checkmark-circle' : 'navigate'} size={20} color="#fff" />
             <Text style={styles.respondText}>{acknowledged ? t(state.language, 'responding') : t(state.language, 'canHelp')}</Text>
           </TouchableOpacity>
+
+          <View style={styles.arrivalCard}>
+            <View style={styles.arrivalHeader}>
+              <View style={[styles.stepIcon, arrivalState === 'verified' && styles.stepIconDone]}>
+                <Ionicons name={arrivalState === 'verified' ? 'shield-checkmark' : 'location'} size={20} color="#fff" />
+              </View>
+              <View style={styles.arrivalCopy}>
+                <Text style={styles.arrivalTitle}>{arrivalState === 'verified' ? 'Arrival verified' : 'Reacher verification'}</Text>
+                <Text style={styles.arrivalHelp}>
+                  {arrivalState === 'verified' ? `GPS match confirmed${arrivalDistance !== null ? ` · ${arrivalDistance} m away` : ''}` : 'Compare your GPS with the live SOS location.'}
+                </Text>
+              </View>
+            </View>
+
+            <TouchableOpacity
+              style={[styles.reachedBtn, (arrivalState === 'checking' || arrivalState === 'verified') && styles.reachedBtnDone]}
+              onPress={verifyReached}
+              disabled={arrivalState !== 'idle'}
+            >
+              <Ionicons name={arrivalState === 'checking' ? 'locate' : arrivalState === 'verified' ? 'checkmark-circle' : 'flag'} size={20} color="#fff" />
+              <Text style={styles.reachedText}>{arrivalState === 'checking' ? 'COMPARING GPS…' : arrivalState === 'verified' ? 'I REACHED · VERIFIED' : 'I REACHED'}</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.moreHelpBtn, arrivalState !== 'verified' && styles.moreHelpLocked, moreHelpSent && styles.moreHelpSent]}
+              onPress={requestMoreHelp}
+              disabled={arrivalState !== 'verified' || moreHelpSent}
+            >
+              <Ionicons name={moreHelpSent ? 'checkmark-circle' : arrivalState === 'verified' ? 'megaphone' : 'lock-closed'} size={20} color={arrivalState === 'verified' ? '#fff' : COLORS.muted} />
+              <Text style={[styles.moreHelpText, arrivalState !== 'verified' && styles.moreHelpTextLocked]}>{moreHelpSent ? 'MORE HELP REQUESTED' : 'NEED MORE HELP'}</Text>
+            </TouchableOpacity>
+          </View>
 
           <View style={styles.card}>
             <Text style={styles.cardLabel}>REPORTED</Text>
@@ -294,6 +384,21 @@ const styles = StyleSheet.create({
   respondBtn: { backgroundColor: '#0277bd', borderRadius: 14, padding: 16, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, marginTop: 12 },
   respondBtnDone: { backgroundColor: '#00a843' },
   respondText: { color: '#fff', fontSize: 14, fontWeight: '800' },
+  arrivalCard: { backgroundColor: COLORS.card, borderRadius: 16, padding: 16, marginTop: 12, borderWidth: 1, borderColor: '#29b6f655' },
+  arrivalHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 16 },
+  stepIcon: { width: 44, height: 44, borderRadius: 22, backgroundColor: '#0277bd', alignItems: 'center', justifyContent: 'center' },
+  stepIconDone: { backgroundColor: '#00a843' },
+  arrivalCopy: { flex: 1, marginLeft: 12 },
+  arrivalTitle: { color: COLORS.text, fontSize: 16, fontWeight: '800' },
+  arrivalHelp: { color: COLORS.muted, fontSize: 12, lineHeight: 18, marginTop: 4 },
+  reachedBtn: { minHeight: 52, borderRadius: 14, backgroundColor: '#0277bd', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 },
+  reachedBtnDone: { backgroundColor: '#00a843' },
+  reachedText: { color: '#fff', fontSize: 14, fontWeight: '800', letterSpacing: 0.4 },
+  moreHelpBtn: { minHeight: 52, borderRadius: 14, backgroundColor: '#d32f2f', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, marginTop: 12 },
+  moreHelpLocked: { backgroundColor: '#102b3b', borderWidth: 1, borderColor: COLORS.border },
+  moreHelpSent: { backgroundColor: '#7b1f1f' },
+  moreHelpText: { color: '#fff', fontSize: 14, fontWeight: '800', letterSpacing: 0.4 },
+  moreHelpTextLocked: { color: COLORS.muted },
   dismissText: { color: '#00c853', fontSize: 14, fontWeight: '700', letterSpacing: 0.5 },
 
   note: {
