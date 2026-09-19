@@ -56,6 +56,7 @@ export default function CommunityAlertScreen() {
   const acknowledged = alert?.acknowledgements?.some(item => item.token === state.expoPushToken);
   const [arrivalState, setArrivalState] = useState('idle');
   const [arrivalDistance, setArrivalDistance] = useState(null);
+  const [arrivalReason, setArrivalReason] = useState(null);
   const [moreHelpSent, setMoreHelpSent] = useState(false);
 
   useEffect(() => {
@@ -73,6 +74,7 @@ export default function CommunityAlertScreen() {
   useEffect(() => {
     setArrivalState('idle');
     setArrivalDistance(null);
+    setArrivalReason(null);
     setMoreHelpSent(false);
   }, [alert?.alertId]);
 
@@ -145,22 +147,33 @@ export default function CommunityAlertScreen() {
       const permission = await Location.requestForegroundPermissionsAsync();
       if (permission.status !== 'granted') throw new Error('Location permission is required to verify arrival.');
       const position = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Highest });
+      await CommunityAlertService.updateResponderLocation({
+        serverUrl: state.alertServerUrl, alertId: alert.alertId, responderToken: state.expoPushToken,
+        location: { latitude: position.coords.latitude, longitude: position.coords.longitude,
+          accuracy: position.coords.accuracy, timestamp: position.timestamp },
+      });
       const result = await CommunityAlertService.verifyArrival({
         serverUrl: state.alertServerUrl,
         alertId: alert.alertId,
         responderToken: state.expoPushToken,
         responderName: normalizeDisplayName(state.displayName),
-        location: {
-          latitude: position.coords.latitude,
-          longitude: position.coords.longitude,
-          accuracy: position.coords.accuracy,
-        },
       });
-      setArrivalDistance(result.arrival?.distanceMeters ?? 0);
-      setArrivalState('verified');
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+      setArrivalDistance(result.distanceMeters);
+      if (result.verified) {
+        setArrivalState('verified');
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+      } else {
+        setArrivalState('failed');
+        setArrivalReason(result.reason === 'TOO_FAR'
+          ? `You are ${Math.round(result.distanceMeters)} m away. Required: within ${result.thresholdMeters} m.`
+          : 'Location is missing, stale or inaccurate. Wait for a better GPS signal.');
+        Alert.alert('Arrival Not Verified', result.reason === 'TOO_FAR'
+          ? `You are ${Math.round(result.distanceMeters)} m away. Required: within ${result.thresholdMeters} m.`
+          : 'Location is missing, stale or inaccurate. Wait for a better GPS signal and retry.');
+      }
     } catch (error) {
-      setArrivalState('idle');
+      setArrivalState('failed');
+      setArrivalReason(error.message || 'Network unavailable. Retry when connected.');
       Alert.alert('Arrival Not Verified', error.message || 'Could not compare your GPS location.');
     }
   }
@@ -240,7 +253,7 @@ export default function CommunityAlertScreen() {
               <View style={styles.arrivalCopy}>
                 <Text style={styles.arrivalTitle}>{arrivalState === 'verified' ? 'Arrival verified' : 'Reacher verification'}</Text>
                 <Text style={styles.arrivalHelp}>
-                  {arrivalState === 'verified' ? `GPS match confirmed${arrivalDistance !== null ? ` · ${arrivalDistance} m away` : ''}` : 'Compare your GPS with the live SOS location.'}
+                  {arrivalState === 'verified' ? `GPS match confirmed${arrivalDistance !== null ? ` · ${arrivalDistance} m away` : ''}` : arrivalState === 'failed' ? `Arrival not verified. ${arrivalReason}` : 'Compare your GPS with the live SOS location.'}
                 </Text>
               </View>
             </View>
@@ -248,11 +261,17 @@ export default function CommunityAlertScreen() {
             <TouchableOpacity
               style={[styles.reachedBtn, (arrivalState === 'checking' || arrivalState === 'verified') && styles.reachedBtnDone]}
               onPress={verifyReached}
-              disabled={arrivalState !== 'idle'}
+              disabled={arrivalState === 'checking' || arrivalState === 'verified'}
             >
               <Ionicons name={arrivalState === 'checking' ? 'locate' : arrivalState === 'verified' ? 'checkmark-circle' : 'flag'} size={20} color="#fff" />
               <Text style={styles.reachedText}>{arrivalState === 'checking' ? 'COMPARING GPS…' : arrivalState === 'verified' ? 'I REACHED · VERIFIED' : 'I REACHED'}</Text>
             </TouchableOpacity>
+
+            {arrivalState === 'failed' && (
+              <TouchableOpacity style={styles.reachedBtn} onPress={() => navigation.navigate('Main', { screen: 'Map', params: { alertId: alert.alertId } })}>
+                <Text style={styles.reachedText}>CONTINUE NAVIGATION</Text>
+              </TouchableOpacity>
+            )}
 
             {arrivalState === 'verified' && (
               <TouchableOpacity

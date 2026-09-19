@@ -2,6 +2,8 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const { evaluateArrival } = require('./reacher-verification');
+const { INCIDENT_TYPES, SEVERITIES, validCoordinates, rankResources, fallbackRecommendation, constrainAIRecommendation } = require('./resource-matching');
 
 const PORT = Number(process.env.PORT) || 10000;
 // Render (and most PaaS providers) require binding to all interfaces, not
@@ -12,15 +14,27 @@ const PORT = Number(process.env.PORT) || 10000;
 // scanner. Binding explicitly to '0.0.0.0' removes that ambiguity entirely.
 const HOST = '0.0.0.0';
 
-const DATA_FILE = path.join(__dirname, 'registered-tokens.json');
-const ALERTS_FILE = path.join(__dirname, 'broadcast-alerts.json');
-const EVIDENCE_DIR = path.join(__dirname, 'evidence-vault');
+const DATA_DIR = process.env.SAFEGUARD_DATA_DIR || __dirname;
+fs.mkdirSync(DATA_DIR, { recursive: true });
+const DATA_FILE = path.join(DATA_DIR, 'registered-tokens.json');
+const ALERTS_FILE = path.join(DATA_DIR, 'broadcast-alerts.json');
+const EVIDENCE_DIR = path.join(DATA_DIR, 'evidence-vault');
+const PUBLIC_INCIDENTS_FILE = path.join(DATA_DIR, 'public-incidents.json');
+const DEMO_RESOURCES_FILE = path.join(__dirname, 'demo-resources.json');
+const AUTHORITY_KEY = process.env.RESQ_AUTHORITY_KEY || '';
+const RESOURCE_SEARCH_RADIUS_KM = positiveConfig('RESOURCE_SEARCH_RADIUS_KM', 10);
 const MAX_BODY_BYTES = 2 * 1024 * 1024;
 const API_KEY = process.env.SAFEGUARD_ALERT_API_KEY || '';
 const MAX_SENDER_NAME_LENGTH = 40;
 const DEFAULT_SENDER_NAME = 'Someone';
 const ALERT_RADIUS_KM = Number(process.env.SAFEGUARD_ALERT_RADIUS_KM) || 1;
-const ARRIVAL_RADIUS_METERS = 150;
+function positiveConfig(name, fallback) {
+  const value = Number(process.env[name]);
+  return Number.isFinite(value) && value > 0 ? value : fallback;
+}
+const ARRIVAL_RADIUS_METERS = positiveConfig('REACHER_ARRIVAL_RADIUS_METERS', 150);
+const MAX_LOCATION_AGE_MS = positiveConfig('REACHER_LOCATION_MAX_AGE_SECONDS', 60) * 1000;
+const MAX_GPS_ACCURACY_METERS = positiveConfig('REACHER_MAX_GPS_ACCURACY_METERS', 50);
 
 function distanceKm(aLat, aLng, bLat, bLng) {
   const rad = value => value * Math.PI / 180;
@@ -55,7 +69,59 @@ function saveAlert(alert) {
 }
 
 function saveAlerts(alerts) {
-  fs.writeFileSync(ALERTS_FILE, JSON.stringify(alerts.slice(0, 100), null, 2));
+  // Keep active incidents even as frequent live-location events roll over.
+  const active = alerts.filter(item => !item.locationUpdate && !item.evidenceUpdate && !item.safeResolved && !item.resolved);
+  const retained = [...new Set([...active, ...alerts.slice(0, 100)])];
+  fs.writeFileSync(ALERTS_FILE, JSON.stringify(retained, null, 2));
+}
+
+function loadPublicIncidents() {
+  try { return JSON.parse(fs.readFileSync(PUBLIC_INCIDENTS_FILE, 'utf8')); } catch (_) { return []; }
+}
+
+function savePublicIncidents(incidents) {
+  fs.writeFileSync(PUBLIC_INCIDENTS_FILE, JSON.stringify(incidents.slice(0, 500), null, 2));
+}
+
+function loadDemoResources() {
+  try {
+    const data = JSON.parse(fs.readFileSync(DEMO_RESOURCES_FILE, 'utf8'));
+    return Array.isArray(data) ? data : [];
+  } catch (_) { return []; }
+}
+
+function authorityAllowed(req) {
+  if (!AUTHORITY_KEY) return false;
+  const supplied = String(req.headers['x-resq-authority-key'] || '');
+  const expected = Buffer.from(AUTHORITY_KEY);
+  const actual = Buffer.from(supplied);
+  return expected.length === actual.length && crypto.timingSafeEqual(expected, actual);
+}
+
+function authorityGuard(req, res) {
+  if (!AUTHORITY_KEY) { json(res, 503, { error: 'Authority access is not configured' }); return false; }
+  if (!authorityAllowed(req)) { json(res, 403, { error: 'Authority access required' }); return false; }
+  return true;
+}
+
+async function resourceRecommendation(incident, resources) {
+  const fallback = fallbackRecommendation(incident, resources);
+  const endpoint = process.env.RESQ_RESOURCE_AI_URL;
+  if (!endpoint || !process.env.RESQ_RESOURCE_AI_API_KEY || !resources.length) return fallback;
+  try {
+    if (!new URL(endpoint).protocol.startsWith('https:')) return fallback;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 3000);
+    try {
+      const response = await fetch(endpoint, { method: 'POST', signal: controller.signal,
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.RESQ_RESOURCE_AI_API_KEY}` },
+        body: JSON.stringify({ incident: { incidentType: incident.incidentType, severity: incident.severity, description: incident.description },
+          resources: resources.map(({ id, name, type, distanceKm, matchingCapabilities, status }) => ({ id, name, type, distanceKm, matchingCapabilities, status })) }) });
+      if (!response.ok) return fallback;
+      const result = await response.json();
+      return constrainAIRecommendation(resources, result) || fallback;
+    } finally { clearTimeout(timeout); }
+  } catch (_) { return fallback; }
 }
 
 function evidenceOwnerId(token) {
@@ -99,8 +165,22 @@ function validateExpoToken(token) {
 }
 
 function validateCoordinate(value, min, max) {
+  if (value === null || value === undefined || value === '') return false;
   const number = Number(value);
   return Number.isFinite(number) && number >= min && number <= max;
+}
+
+function validAccuracy(value) {
+  return value !== null && value !== undefined && value !== '' && Number.isFinite(Number(value)) && Number(value) >= 0;
+}
+
+function registeredResponder(token, senderToken) {
+  return validateExpoToken(token) && token !== senderToken && loadTokens().some(entry => entry.token === token);
+}
+
+function freshObservedAt(value) {
+  const time = Date.parse(value);
+  return Number.isFinite(time) && time <= Date.now() + 30000 && Date.now() - time <= MAX_LOCATION_AGE_MS;
 }
 
 // Trims whitespace, caps length, and falls back to a default when empty.
@@ -120,6 +200,7 @@ function clientError(res, error) {
 }
 
 async function sendExpoPushNotifications(messages) {
+  if (process.env.NODE_ENV === 'test') return { sent: messages.length, simulated: true };
   if (!messages.length) {
     return { sent: 0 };
   }
@@ -149,6 +230,62 @@ const server = http.createServer(async (req, res) => {
   try {
     if (req.method === 'GET' && req.url === '/health') {
       return json(res, 200, { ok: true, service: 'RESQ 360 broadcast server' });
+    }
+
+    if (req.method === 'POST' && req.url === '/public-incidents') {
+      try {
+        const body = await readJson(req);
+        const incidentType = String(body.incidentType || '').toUpperCase();
+        const severity = String(body.severity || '').toUpperCase();
+        if (!INCIDENT_TYPES.includes(incidentType) || !SEVERITIES.includes(severity)) return json(res, 400, { error: 'Valid incident type and severity are required' });
+        const latitude = Number(body.latitude), longitude = Number(body.longitude);
+        if (body.latitude == null || body.longitude == null || !validCoordinates(latitude, longitude)) return json(res, 400, { error: 'Valid incident coordinates are required' });
+        const incident = { id: crypto.randomUUID(), incidentType, severity, latitude, longitude,
+          description: String(body.description || '').trim().slice(0, 500), createdAt: new Date().toISOString(),
+          demoMode: body.demoMode === true, status: 'REPORTED', coordinationActions: [] };
+        savePublicIncidents([incident, ...loadPublicIncidents()]);
+        return json(res, 201, { ok: true, incidentId: incident.id, status: incident.status, message: 'Public incident recorded for authority review; no agency was dispatched.' });
+      } catch (error) { return clientError(res, error); }
+    }
+
+    if (req.method === 'GET' && req.url === '/public-incidents') {
+      if (!authorityGuard(req, res)) return;
+      return json(res, 200, { ok: true, incidents: loadPublicIncidents() });
+    }
+
+    const resourceMatch = req.url?.match(/^\/public-incidents\/([A-Za-z0-9-]+)\/nearby-resources$/);
+    if (req.method === 'GET' && resourceMatch) {
+      if (!authorityGuard(req, res)) return;
+      const incident = loadPublicIncidents().find(item => item.id === resourceMatch[1]);
+      if (!incident) return json(res, 404, { error: 'Public incident not found' });
+      if (!validCoordinates(incident.latitude, incident.longitude)) return json(res, 422, { error: 'Incident location is missing or invalid' });
+      const resources = rankResources(incident, loadDemoResources(), RESOURCE_SEARCH_RADIUS_KM);
+      const recommendation = await resourceRecommendation(incident, resources);
+      return json(res, 200, { ok: true, incident, radiusKm: RESOURCE_SEARCH_RADIUS_KM, resources, recommendation,
+        dataSource: 'REGISTERED_DEMO_DATA', officialAvailability: false,
+        message: resources.length ? 'Authority decision support only; no agency has been dispatched.' : `No relevant registered demo resources found within ${RESOURCE_SEARCH_RADIUS_KM} km.` });
+    }
+
+    const coordinateMatch = req.url?.match(/^\/public-incidents\/([A-Za-z0-9-]+)\/coordinate$/);
+    if (req.method === 'POST' && coordinateMatch) {
+      if (!authorityGuard(req, res)) return;
+      try {
+        const body = await readJson(req);
+        const incidents = loadPublicIncidents();
+        const index = incidents.findIndex(item => item.id === coordinateMatch[1]);
+        if (index < 0) return json(res, 404, { error: 'Public incident not found' });
+        const incident = incidents[index];
+        if (incident.status === 'CLOSED') return json(res, 409, { error: 'Incident is closed' });
+        const candidates = rankResources(incident, loadDemoResources(), RESOURCE_SEARCH_RADIUS_KM);
+        const selected = candidates.find(item => item.id === body.resourceId && item.available);
+        if (!selected) return json(res, 422, { error: 'Select an available, relevant registered demo resource within the search radius' });
+        const action = { id: crypto.randomUUID(), resourceId: selected.id, resourceName: selected.name,
+          at: new Date().toISOString(), status: 'COORDINATION_INITIATED', demo: true };
+        incident.coordinationActions = [...(incident.coordinationActions || []), action];
+        incident.status = 'COORDINATION_INITIATED';
+        savePublicIncidents(incidents);
+        return json(res, 200, { ok: true, action, message: 'Response coordination initiated. No agency was automatically dispatched.' });
+      } catch (error) { return clientError(res, error); }
     }
 
     if (req.method === 'GET' && req.url.startsWith('/evidence/audio')) {
@@ -309,6 +446,8 @@ const server = http.createServer(async (req, res) => {
           senderInstallationId,
           senderName,
           language,
+          accuracy: validAccuracy(body.accuracy) ? Number(body.accuracy) : null,
+          locationUpdatedAt: freshObservedAt(body.locationTimestamp) ? new Date().toISOString() : null,
         };
         saveAlert(alert);
 
@@ -393,11 +532,31 @@ const server = http.createServer(async (req, res) => {
         const body = await readJson(req); const alerts = loadAlerts();
         const index = alerts.findIndex(alert => alert.id === body.alertId);
         if (index < 0) return json(res, 404, { error: 'Alert not found' });
+        if (alerts[index].resolved) return json(res, 409, { error: 'This SOS has already ended' });
+        if (!registeredResponder(body.responderToken, alerts[index].senderToken)) return json(res, 403, { error: 'Registered responder required' });
         const acknowledgement = { token: String(body.responderToken || ''), name: normalizeSenderName(body.responderName), at: new Date().toISOString() };
         const current = Array.isArray(alerts[index].acknowledgements) ? alerts[index].acknowledgements : [];
         alerts[index].acknowledgements = [...current.filter(item => item.token !== acknowledgement.token), acknowledgement];
         saveAlerts(alerts);
         return json(res, 200, { ok: true, acknowledgements: alerts[index].acknowledgements });
+      } catch (error) { return clientError(res, error); }
+    }
+
+    if (req.method === 'POST' && req.url === '/update-responder-location') {
+      try {
+        if (!isAuthorized(req)) return json(res, 401, { error: 'Unauthorized' });
+        const body = await readJson(req); const alerts = loadAlerts();
+        const index = alerts.findIndex(alert => alert.id === body.alertId && !alert.locationUpdate);
+        if (index < 0) return json(res, 404, { error: 'Alert not found' });
+        const alert = alerts[index];
+        if (alert.resolved) return json(res, 409, { error: 'This SOS has already ended' });
+        if (!registeredResponder(body.responderToken, alert.senderToken) || !(alert.acknowledgements || []).some(item => item.token === body.responderToken)) return json(res, 403, { error: 'Responder is not participating in this SOS' });
+        if (!validateCoordinate(body.lat, -90, 90) || !validateCoordinate(body.lng, -180, 180) || !validAccuracy(body.accuracy) || !freshObservedAt(body.locationTimestamp)) return json(res, 400, { error: 'Current GPS location, accuracy and timestamp are required' });
+        const responderLocations = alert.responderLocations || {};
+        responderLocations[body.responderToken] = { lat: Number(body.lat), lng: Number(body.lng), accuracy: Number(body.accuracy), timestamp: new Date().toISOString(), observedAt: body.locationTimestamp };
+        alert.responderLocations = responderLocations;
+        saveAlerts(alerts);
+        return json(res, 200, { ok: true, locationUpdatedAt: responderLocations[body.responderToken].timestamp });
       } catch (error) { return clientError(res, error); }
     }
 
@@ -408,29 +567,21 @@ const server = http.createServer(async (req, res) => {
         const index = alerts.findIndex(alert => alert.id === body.alertId && !alert.locationUpdate);
         if (index < 0) return json(res, 404, { error: 'Alert not found' });
         if (alerts[index].resolved) return json(res, 409, { error: 'This SOS has already ended' });
-        if (!validateExpoToken(body.responderToken)) return json(res, 400, { error: 'Responder registration is invalid' });
-        if (!validateCoordinate(body.lat, -90, 90) || !validateCoordinate(body.lng, -180, 180)) {
-          return json(res, 400, { error: 'Responder location is invalid' });
-        }
-
-        const accuracy = Math.max(0, Number(body.accuracy) || 0);
-        if (accuracy > 100) return json(res, 422, { error: 'GPS accuracy is too low. Move outdoors and try again.' });
-        const distanceMeters = Math.round(distanceKm(alerts[index].lat, alerts[index].lng, Number(body.lat), Number(body.lng)) * 1000);
-        if (distanceMeters > ARRIVAL_RADIUS_METERS) {
-          return json(res, 422, { error: `You are ${distanceMeters} m away. Arrival verifies within ${ARRIVAL_RADIUS_METERS} m.`, distanceMeters, thresholdMeters: ARRIVAL_RADIUS_METERS });
-        }
-
-        const arrival = {
-          token: body.responderToken,
-          name: normalizeSenderName(body.responderName),
-          at: new Date().toISOString(),
-          distanceMeters,
-          accuracyMeters: Math.round(accuracy),
-        };
+        const alert = alerts[index];
+        if (!registeredResponder(body.responderToken, alert.senderToken) || !(alert.acknowledgements || []).some(item => item.token === body.responderToken)) return json(res, 403, { error: 'Responder is not participating in this SOS' });
+        const previous = (alert.verifiedArrivals || []).find(item => item.token === body.responderToken);
+        if (previous) return json(res, 200, { ok: true, verified: true, arrival: previous, thresholdMeters: ARRIVAL_RADIUS_METERS });
+        const sender = { lat: alert.lat, lng: alert.lng, accuracy: alert.accuracy, timestamp: alert.locationUpdatedAt };
+        const reacher = (alert.responderLocations || {})[body.responderToken];
+        const result = evaluateArrival(sender, reacher, Date.now(), { radiusMeters: ARRIVAL_RADIUS_METERS, maxAgeMs: MAX_LOCATION_AGE_MS, maxAccuracyMeters: MAX_GPS_ACCURACY_METERS });
+        const arrival = { token: body.responderToken, name: normalizeSenderName(body.responderName), at: result.verified ? new Date().toISOString() : null,
+          status: result.verified ? 'VERIFIED' : 'NOT_VERIFIED', distanceMeters: result.distanceMeters, thresholdMeters: ARRIVAL_RADIUS_METERS,
+          reason: result.reason, senderLocation: sender, reacherLocation: reacher || null, verificationTimestamp: new Date().toISOString() };
+        alert.arrivalAttempts = [...(alert.arrivalAttempts || []).filter(item => item.token !== body.responderToken), arrival];
         const arrivals = Array.isArray(alerts[index].verifiedArrivals) ? alerts[index].verifiedArrivals : [];
-        alerts[index].verifiedArrivals = [...arrivals.filter(item => item.token !== arrival.token), arrival];
+        if (result.verified) alerts[index].verifiedArrivals = [...arrivals.filter(item => item.token !== arrival.token), arrival];
         saveAlerts(alerts);
-        return json(res, 200, { ok: true, verified: true, arrival, verifiedArrivals: alerts[index].verifiedArrivals });
+        return json(res, 200, { ok: true, ...result, arrival });
       } catch (error) { return clientError(res, error); }
     }
 
@@ -441,6 +592,7 @@ const server = http.createServer(async (req, res) => {
         const index = alerts.findIndex(alert => alert.id === body.alertId && !alert.locationUpdate);
         if (index < 0) return json(res, 404, { error: 'Alert not found' });
         if (alerts[index].resolved) return json(res, 409, { error: 'This SOS has already ended' });
+        if (!registeredResponder(body.responderToken, alerts[index].senderToken) || !(alerts[index].acknowledgements || []).some(item => item.token === body.responderToken)) return json(res, 403, { error: 'Responder is not participating in this SOS' });
         const arrival = (alerts[index].verifiedArrivals || []).find(item => item.token === body.responderToken);
         if (!arrival) return json(res, 403, { error: 'Verified arrival is required before requesting more help' });
 
@@ -474,8 +626,10 @@ const server = http.createServer(async (req, res) => {
         const index = alerts.findIndex(alert => alert.id === body.alertId);
         if (index < 0) return json(res, 404, { error: 'Alert not found' });
         if (alerts[index].senderToken !== body.senderToken) return json(res, 403, { error: 'Sender mismatch' });
+        if (alerts[index].resolved) return json(res, 409, { error: 'This SOS has already ended' });
         if (!validateCoordinate(body.lat, -90, 90) || !validateCoordinate(body.lng, -180, 180)) return json(res, 400, { error: 'Invalid location' });
-        alerts[index] = { ...alerts[index], lat: Number(body.lat), lng: Number(body.lng), accuracy: Number(body.accuracy) || null, locationUpdatedAt: new Date().toISOString() };
+        if (!validAccuracy(body.accuracy) || !freshObservedAt(body.locationTimestamp)) return json(res, 400, { error: 'Current GPS accuracy and timestamp are required' });
+        alerts[index] = { ...alerts[index], lat: Number(body.lat), lng: Number(body.lng), accuracy: Number(body.accuracy), locationUpdatedAt: new Date().toISOString() };
         const locationEvent = { id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, locationUpdate: true, targetAlertId: body.alertId, lat: alerts[index].lat, lng: alerts[index].lng, accuracy: alerts[index].accuracy, locationUpdatedAt: alerts[index].locationUpdatedAt };
         saveAlerts([locationEvent, ...alerts]); return json(res, 200, { ok: true, alert: alerts[index] });
       } catch (error) { return clientError(res, error); }

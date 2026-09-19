@@ -11,6 +11,8 @@ import MapScreen from '../screens/MapScreen';
 import ContactsScreen from '../screens/ContactsScreen';
 import HistoryScreen from '../screens/HistoryScreen';
 import SettingsScreen from '../screens/SettingsScreen';
+import PublicEmergencyScreen from '../screens/PublicEmergencyScreen';
+import AuthorityResourcesScreen from '../screens/AuthorityResourcesScreen';
 
 const Tab = createBottomTabNavigator();
 const Stack = createStackNavigator();
@@ -70,6 +72,8 @@ export default function AppNavigator() {
   return (
     <Stack.Navigator screenOptions={{ headerShown: false }}>
       <Stack.Screen name="Main" component={TabNavigator} />
+      <Stack.Screen name="PublicEmergency" component={PublicEmergencyScreen} />
+      <Stack.Screen name="AuthorityResources" component={AuthorityResourcesScreen} />
 
       {/* Local SOS only — the sender's own emergency. Never opened for a remote alert. */}
       <Stack.Screen

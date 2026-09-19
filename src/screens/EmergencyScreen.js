@@ -178,7 +178,7 @@ export default function EmergencyScreen() {
     Location.watchPositionAsync(
       { accuracy: Location.Accuracy.High, timeInterval: 10000, distanceInterval: 10 },
       loc => {
-        const location = { latitude: loc.coords.latitude, longitude: loc.coords.longitude, accuracy: loc.coords.accuracy };
+        const location = { latitude: loc.coords.latitude, longitude: loc.coords.longitude, accuracy: loc.coords.accuracy, timestamp: loc.timestamp };
         dispatch({ type: 'SET_LOCATION', payload: location });
         EvidenceService.addLocation(location);
         CommunityAlertService.updateSOSLocation({ serverUrl: state.alertServerUrl, alertId: state.activeAlertId, senderToken: state.expoPushToken, location }).catch(() => {});

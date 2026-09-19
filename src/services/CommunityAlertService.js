@@ -33,7 +33,7 @@ function normalizeUrl(url) {
   return (url || '').trim().replace(/\/+$/, '');
 }
 
-async function postJson(url, payload) {
+async function postJson(url, payload, extraHeaders = {}) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
 
@@ -43,6 +43,7 @@ async function postJson(url, payload) {
       headers: {
         'Content-Type': 'application/json',
         ...(ALERT_API_KEY ? { 'X-SafeGuard-API-Key': ALERT_API_KEY } : {}),
+        ...extraHeaders,
       },
       body: JSON.stringify(payload),
       signal: controller.signal,
@@ -56,6 +57,12 @@ async function postJson(url, payload) {
   } finally {
     clearTimeout(timer);
   }
+}
+
+async function authorityGet(url, authorityKey) {
+  const response = await fetch(url, { headers: { 'X-RESQ-Authority-Key': authorityKey } });
+  if (!response.ok) throw new Error(`${response.status} ${await response.text()}`);
+  return response.json();
 }
 
 class CommunityAlertServiceClass {
@@ -157,17 +164,35 @@ class CommunityAlertServiceClass {
     return postJson(`${baseUrl}/acknowledge-sos`, { alertId, responderToken, responderName });
   }
 
-  async verifyArrival({ serverUrl, alertId, responderToken, responderName, location }) {
+  async updateResponderLocation({ serverUrl, alertId, responderToken, location }) {
     const baseUrl = normalizeUrl(serverUrl);
-    if (!baseUrl || !alertId || !location) throw new Error('Alert location is not available');
-    return postJson(`${baseUrl}/verify-arrival`, {
-      alertId,
-      responderToken,
-      responderName,
-      lat: location.latitude,
-      lng: location.longitude,
-      accuracy: location.accuracy,
-    });
+    if (!baseUrl || !alertId || !location) throw new Error('Responder location is not available');
+    return postJson(`${baseUrl}/update-responder-location`, { alertId, responderToken,
+      lat: location.latitude, lng: location.longitude, accuracy: location.accuracy,
+      locationTimestamp: new Date(location.timestamp).toISOString() });
+  }
+
+  async reportPublicIncident({ serverUrl, incidentType, severity, description, latitude, longitude, demoMode = false }) {
+    return postJson(`${normalizeUrl(serverUrl)}/public-incidents`, { incidentType, severity, description, latitude, longitude, demoMode });
+  }
+
+  async listPublicIncidents({ serverUrl, authorityKey }) {
+    return authorityGet(`${normalizeUrl(serverUrl)}/public-incidents`, authorityKey);
+  }
+
+  async getNearbyResources({ serverUrl, authorityKey, incidentId }) {
+    return authorityGet(`${normalizeUrl(serverUrl)}/public-incidents/${encodeURIComponent(incidentId)}/nearby-resources`, authorityKey);
+  }
+
+  async coordinatePublicResponse({ serverUrl, authorityKey, incidentId, resourceId }) {
+    return postJson(`${normalizeUrl(serverUrl)}/public-incidents/${encodeURIComponent(incidentId)}/coordinate`,
+      { resourceId }, { 'X-RESQ-Authority-Key': authorityKey });
+  }
+
+  async verifyArrival({ serverUrl, alertId, responderToken, responderName }) {
+    const baseUrl = normalizeUrl(serverUrl);
+    if (!baseUrl || !alertId) throw new Error('Alert is not available');
+    return postJson(`${baseUrl}/verify-arrival`, { alertId, responderToken, responderName });
   }
 
   async requestMoreHelp({ serverUrl, alertId, responderToken }) {
@@ -185,6 +210,7 @@ class CommunityAlertServiceClass {
     const baseUrl = normalizeUrl(serverUrl);
     return postJson(`${baseUrl}/update-sos-location`, {
       alertId, senderToken, lat: location.latitude, lng: location.longitude, accuracy: location.accuracy,
+      locationTimestamp: new Date(location.timestamp).toISOString(),
     });
   }
 

@@ -65,7 +65,7 @@ export default function HomeScreen() {
     try {
       const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
       const { latitude, longitude } = loc.coords;
-      dispatch({ type: 'SET_LOCATION', payload: { latitude, longitude } });
+      dispatch({ type: 'SET_LOCATION', payload: { latitude, longitude, accuracy: loc.coords.accuracy, timestamp: loc.timestamp } });
 
       const [addr] = await Location.reverseGeocodeAsync({ latitude, longitude });
       if (addr) {
@@ -147,6 +147,8 @@ export default function HomeScreen() {
         lng: state.currentLocation?.longitude,
         source: 'MANUAL',
         timestamp,
+        accuracy: state.currentLocation?.accuracy,
+        locationTimestamp: state.currentLocation?.timestamp ? new Date(state.currentLocation.timestamp).toISOString() : null,
         senderToken,
         senderName,
         language: state.language,
@@ -240,6 +242,16 @@ export default function HomeScreen() {
         </View>
 
         {/* Quick Stats */}
+        <TouchableOpacity style={styles.publicAction} onPress={() => navigation.navigate('PublicEmergency')} accessibilityRole="button">
+          <Ionicons name="megaphone-outline" size={20} color="#fff" />
+          <Text style={styles.publicActionText}>REPORT PUBLIC EMERGENCY</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.authorityAction} onPress={() => navigation.navigate('AuthorityResources')} accessibilityRole="button">
+          <Ionicons name="shield-checkmark-outline" size={20} color={COLORS.primary} />
+          <Text style={styles.authorityActionText}>Authority resource view</Text>
+        </TouchableOpacity>
+
+        {/* Quick Stats */}
         <View style={styles.statsRow}>
           <View style={styles.statCard}>
             <Ionicons name="people" size={20} color={COLORS.primary} />
@@ -263,6 +275,10 @@ export default function HomeScreen() {
 }
 
 const styles = StyleSheet.create({
+  publicAction:{minHeight:48,borderRadius:10,backgroundColor:'#D32F2F',marginTop:20,flexDirection:'row',alignItems:'center',justifyContent:'center',gap:8},
+  publicActionText:{color:'#fff',fontSize:12,fontWeight:'800'},
+  authorityAction:{minHeight:44,borderRadius:10,borderWidth:1,borderColor:COLORS.border,marginTop:8,flexDirection:'row',alignItems:'center',justifyContent:'center',gap:8},
+  authorityActionText:{color:COLORS.primary,fontSize:12,fontWeight:'700'},
   container: { flex: 1, backgroundColor: COLORS.bg },
   scroll: { paddingHorizontal: 16, paddingBottom: 32 },
 

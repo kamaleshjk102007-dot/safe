@@ -1,5 +1,23 @@
 # RESQ 360 — Personal Emergency Response System
 
+## Public emergency resource-identification prototype
+
+The Home screen also offers **Report Public Emergency**. This is separate from personal SOS: it records incident type, severity, description, and a fresh GPS fix without calling contacts or dispatching an agency. The authority resource view requires the backend environment variable `RESQ_AUTHORITY_KEY` (set a long random value in Render's environment settings); the key is entered in the app and is not bundled in the APK. If the variable is absent, authority endpoints fail closed.
+
+For a lab demonstration away from Coimbatore, the report form has an explicit **Use Coimbatore demo location** option. It marks the incident as a simulation and sends test coordinates instead of the phone's GPS. Leave it off for a real-location report.
+
+The backend uses the registered **demo-only** resources in `server/demo-resources.json`. They are fictional units around Coimbatore, not government registrations, live availability, or verified contacts. Set `RESOURCE_SEARCH_RADIUS_KM` to change the default 10 km search radius. The server calculates Haversine distance, capability matches, availability, and transparent ranking. An authority can review the list on the existing map and record “Response coordination initiated”; no external agency is contacted. Incident records and coordination actions use the existing server's JSON-file storage pattern (`public-incidents.json` in `SAFEGUARD_DATA_DIR` or the server directory). Render's ephemeral filesystem is not suitable for durable production records; use a persistent datastore before real deployment.
+
+An optional AI recommendation service can be configured with `RESQ_RESOURCE_AI_URL` (HTTPS) and `RESQ_RESOURCE_AI_API_KEY`. It receives only structured incident and ranked-resource facts and must return JSON `{ "recommendedResourceIds": ["demo_fire_01"] }`. The backend accepts only IDs of available registered results and writes its own factual explanation. If the service is unset, unavailable, or returns invalid IDs, the response is explicitly `RULE_BASED`. No pretrained model is bundled. The authority must make the final decision.
+
+API: `POST /public-incidents` is the public report endpoint. `GET /public-incidents`, `GET /public-incidents/:id/nearby-resources`, and `POST /public-incidents/:id/coordinate` require the `X-RESQ-Authority-Key` header. There is intentionally no public resource-management endpoint.
+
+Run all backend tests (including Reacher Verification):
+
+```bash
+node --test server/reacher-verification.test.js server/reacher-integration.test.js server/resource-matching.test.js server/public-incidents.test.js
+```
+
 This build removes the ESP32 / BLE physical panic-button dependency. SOS alerts
 are triggered entirely from the phone: a tap on the SOS button, or an incoming
 SMS in the app's supported formats. No microcontroller, GPS module, or GSM
