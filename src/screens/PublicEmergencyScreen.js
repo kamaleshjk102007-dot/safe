@@ -16,13 +16,15 @@ export default function PublicEmergencyScreen({ navigation }) {
   const [loading, setLoading] = useState(false);
   const [reported, setReported] = useState(null);
   const [demoMode, setDemoMode] = useState(false);
+  const [demoReportCount, setDemoReportCount] = useState(0);
 
   async function report() {
     setLoading(true);
     try {
       let latitude, longitude;
       if (demoMode) {
-        latitude = 11.0168; longitude = 76.9558;
+        latitude = 11.0168 + (demoReportCount % 3) * 0.0015;
+        longitude = 76.9558 + (demoReportCount % 3) * 0.0012;
       } else {
         const permission = await Location.requestForegroundPermissionsAsync();
         if (permission.status !== 'granted') throw new Error('Location permission is required to report a public emergency.');
@@ -32,6 +34,7 @@ export default function PublicEmergencyScreen({ navigation }) {
       const result = await CommunityAlertService.reportPublicIncident({ serverUrl: state.alertServerUrl,
         incidentType, severity, description: description.trim(), latitude, longitude, demoMode });
       setReported(result.incidentId);
+      if (demoMode && !result.duplicate) setDemoReportCount(count => count + 1);
     } catch (error) {
       Alert.alert('Report Not Sent', error.message || 'Check your connection and try again.');
     } finally { setLoading(false); }
@@ -41,7 +44,7 @@ export default function PublicEmergencyScreen({ navigation }) {
     <TouchableOpacity onPress={() => navigation.goBack()} style={styles.back}><Text style={styles.backText}>‹ Back</Text></TouchableOpacity>
     <Text style={styles.title}>Public emergency report</Text>
     <Text style={styles.hint}>Separate from personal SOS. A report does not dispatch any agency.</Text>
-    {reported ? <View style={styles.card}><Text style={styles.success}>Report recorded</Text><Text style={styles.text}>Reference: {reported}</Text><Text style={styles.hint}>An authorized authority can review nearby registered demo resources and decide what to do.</Text></View> : <>
+    {reported ? <View style={styles.card}><Text style={styles.success}>Report recorded</Text><Text style={styles.text}>Reference: {reported}</Text><Text style={styles.hint}>An authorized authority can review the situation and nearby registered demo resources.</Text><TouchableOpacity style={styles.button} onPress={() => { setReported(null); setDescription(''); }}><Text style={styles.buttonText}>REPORT ANOTHER OBSERVATION</Text></TouchableOpacity></View> : <>
       <Text style={styles.label}>INCIDENT TYPE</Text><View style={styles.choices}>{TYPES.map(item => <TouchableOpacity key={item} style={[styles.chip, incidentType === item && styles.selected]} onPress={() => setIncidentType(item)}><Text style={styles.chipText}>{item.replace(/_/g, ' ')}</Text></TouchableOpacity>)}</View>
       <Text style={styles.label}>SEVERITY</Text><View style={styles.choices}>{SEVERITIES.map(item => <TouchableOpacity key={item} style={[styles.chip, severity === item && styles.selected]} onPress={() => setSeverity(item)}><Text style={styles.chipText}>{item}</Text></TouchableOpacity>)}</View>
       <Text style={styles.label}>WHAT HAPPENED?</Text><TextInput style={styles.input} multiline maxLength={500} placeholder="Describe the situation" placeholderTextColor="#78909C" value={description} onChangeText={setDescription} />

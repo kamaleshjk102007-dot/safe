@@ -57,6 +57,45 @@ SafeGuard/
 
 ---
 
+## Situation Intelligence for public emergencies
+
+Public emergency reports are stored as individual evidence records in the existing
+`public-incidents.json`. New reports of the same incident type can join a situation
+when they are close in time, location, and description. The default correlation
+limits are 1 km and 30 minutes; configure them with
+`SITUATION_CORRELATION_RADIUS_KM` and `SITUATION_CORRELATION_WINDOW_MINUTES`.
+The backend calculates geographic distance with Haversine, preserves each report,
+and derives a current situation center, condition labels, severity reasons, and
+potential response needs. A repeated identical submission within 10 seconds is
+treated as a duplicate. The situation is a decision-support assessment, not an
+official classification or confirmed casualty count.
+
+The authority-only endpoints `GET /public-situations`,
+`GET /public-situations/:id`, and `GET /public-incidents/:id/situation` reuse
+`RESQ_AUTHORITY_KEY`. The existing nearby-resource endpoint now includes the
+situation and ranks registered demo resources against its center and inferred
+needs. Coordination still records an authority decision; it does not dispatch
+an agency. The authority view can show the source reports, situation center,
+individual report locations, and registered demo resources on the existing map.
+
+Without an AI service, analysis is labeled `RULE_BASED`. An optional HTTPS
+service can be configured with `SITUATION_AI_URL`, `SITUATION_AI_API_KEY`, and
+`SITUATION_AI_TIMEOUT_MS` (default 3000). Its structured response is validated
+against backend evidence; it cannot add reports, conditions, needs, resources,
+locations, or confirmed claims. Keep the key in server environment variables,
+not in Git or the mobile app. The AI service is not required for the demo.
+
+Demo: open **Report Public Emergency**, select LANDSLIDE/HIGH and the
+Coimbatore demo location, then submit these three descriptions in sequence
+using **Report Another Observation**: “Large landslide has blocked the road.”,
+“People may be trapped near the blocked road.”, and “Road is completely blocked
+by mud.” Open **Authority resources** with the configured key; one situation
+should show three related reports, possible trapped people, road blockage, and
+potential response needs. View the reports/map and record coordination with an
+available registered demo unit. No real agency is dispatched.
+
+Run all backend tests with `node --test server/*.test.js`.
+
 ## How SOS triggers now work
 
 1. **Manual (App button)** — tap the big SOS button on the Home screen. Captures

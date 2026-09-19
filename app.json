@@ -2,7 +2,7 @@
   "expo": {
     "name": "RESQ 360",
     "slug": "resq-360",
-    "version": "1.0.1",
+    "version": "1.0.2",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",

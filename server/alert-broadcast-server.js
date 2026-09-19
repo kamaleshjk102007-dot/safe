@@ -4,6 +4,7 @@ const path = require('path');
 const crypto = require('crypto');
 const { evaluateArrival } = require('./reacher-verification');
 const { INCIDENT_TYPES, SEVERITIES, validCoordinates, rankResources, fallbackRecommendation, constrainAIRecommendation } = require('./resource-matching');
+const { groupedReports, findRelatedSituation, buildSituation, constrainSituationAI } = require('./situation-intelligence');
 
 const PORT = Number(process.env.PORT) || 10000;
 // Render (and most PaaS providers) require binding to all interfaces, not
@@ -23,6 +24,8 @@ const PUBLIC_INCIDENTS_FILE = path.join(DATA_DIR, 'public-incidents.json');
 const DEMO_RESOURCES_FILE = path.join(__dirname, 'demo-resources.json');
 const AUTHORITY_KEY = process.env.RESQ_AUTHORITY_KEY || '';
 const RESOURCE_SEARCH_RADIUS_KM = positiveConfig('RESOURCE_SEARCH_RADIUS_KM', 10);
+const SITUATION_CORRELATION_RADIUS_KM = positiveConfig('SITUATION_CORRELATION_RADIUS_KM', 1);
+const SITUATION_CORRELATION_WINDOW_MINUTES = positiveConfig('SITUATION_CORRELATION_WINDOW_MINUTES', 30);
 const MAX_BODY_BYTES = 2 * 1024 * 1024;
 const API_KEY = process.env.SAFEGUARD_ALERT_API_KEY || '';
 const MAX_SENDER_NAME_LENGTH = 40;
@@ -122,6 +125,30 @@ async function resourceRecommendation(incident, resources) {
       return constrainAIRecommendation(resources, result) || fallback;
     } finally { clearTimeout(timeout); }
   } catch (_) { return fallback; }
+}
+
+function situationForIncident(incident, incidents) {
+  const id = incident.situationId || incident.id;
+  return buildSituation(groupedReports(incidents).get(id) || [incident]);
+}
+
+async function situationAssessment(situation) {
+  const endpoint = process.env.SITUATION_AI_URL;
+  if (!endpoint || !process.env.SITUATION_AI_API_KEY) return situation;
+  try {
+    if (new URL(endpoint).protocol !== 'https:') return situation;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), positiveConfig('SITUATION_AI_TIMEOUT_MS', 3000));
+    try {
+      const response = await fetch(endpoint, { method: 'POST', signal: controller.signal,
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.SITUATION_AI_API_KEY}` },
+        body: JSON.stringify({ situationId: situation.id, incidentType: situation.incidentType,
+          reports: situation.reports, factualConditions: situation.conditions,
+          ruleBasedSeverity: situation.severity, permittedResponseNeeds: situation.responseNeeds }) });
+      if (!response.ok) return situation;
+      return constrainSituationAI(situation, await response.json()) || situation;
+    } finally { clearTimeout(timeout); }
+  } catch (_) { return situation; }
 }
 
 function evidenceOwnerId(token) {
@@ -243,8 +270,15 @@ const server = http.createServer(async (req, res) => {
         const incident = { id: crypto.randomUUID(), incidentType, severity, latitude, longitude,
           description: String(body.description || '').trim().slice(0, 500), createdAt: new Date().toISOString(),
           demoMode: body.demoMode === true, status: 'REPORTED', coordinationActions: [] };
-        savePublicIncidents([incident, ...loadPublicIncidents()]);
-        return json(res, 201, { ok: true, incidentId: incident.id, status: incident.status, message: 'Public incident recorded for authority review; no agency was dispatched.' });
+        const incidents = loadPublicIncidents();
+        const duplicate = incidents.find(item => item.incidentType === incidentType && item.demoMode === incident.demoMode &&
+          item.description === incident.description && Math.abs(Date.parse(item.createdAt) - Date.parse(incident.createdAt)) < 10000 &&
+          validCoordinates(item.latitude, item.longitude) && distanceKm(latitude, longitude, item.latitude, item.longitude) < 0.02);
+        if (duplicate) return json(res, 200, { ok: true, duplicate: true, incidentId: duplicate.id, situationId: duplicate.situationId || duplicate.id, status: duplicate.status });
+        incident.situationId = findRelatedSituation(incident, incidents, SITUATION_CORRELATION_RADIUS_KM,
+          SITUATION_CORRELATION_WINDOW_MINUTES) || `SI-${crypto.randomUUID()}`;
+        savePublicIncidents([incident, ...incidents]);
+        return json(res, 201, { ok: true, incidentId: incident.id, situationId: incident.situationId, status: incident.status, message: 'Public incident recorded for authority review; no agency was dispatched.' });
       } catch (error) { return clientError(res, error); }
     }
 
@@ -253,15 +287,43 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, { ok: true, incidents: loadPublicIncidents() });
     }
 
+    if (req.method === 'GET' && req.url === '/public-situations') {
+      if (!authorityGuard(req, res)) return;
+      const situations = [...groupedReports(loadPublicIncidents()).values()].map(buildSituation)
+        .filter(Boolean).sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt));
+      return json(res, 200, { ok: true, situations });
+    }
+
+    const situationMatch = req.url?.match(/^\/public-situations\/([A-Za-z0-9-]+)$/);
+    if (req.method === 'GET' && situationMatch) {
+      if (!authorityGuard(req, res)) return;
+      const reports = groupedReports(loadPublicIncidents()).get(situationMatch[1]);
+      if (!reports) return json(res, 404, { error: 'Situation not found' });
+      return json(res, 200, { ok: true, situation: await situationAssessment(buildSituation(reports)) });
+    }
+
+    const incidentSituationMatch = req.url?.match(/^\/public-incidents\/([A-Za-z0-9-]+)\/situation$/);
+    if (req.method === 'GET' && incidentSituationMatch) {
+      if (!authorityGuard(req, res)) return;
+      const incidents = loadPublicIncidents();
+      const incident = incidents.find(item => item.id === incidentSituationMatch[1]);
+      if (!incident) return json(res, 404, { error: 'Public incident not found' });
+      return json(res, 200, { ok: true, situation: await situationAssessment(situationForIncident(incident, incidents)) });
+    }
+
     const resourceMatch = req.url?.match(/^\/public-incidents\/([A-Za-z0-9-]+)\/nearby-resources$/);
     if (req.method === 'GET' && resourceMatch) {
       if (!authorityGuard(req, res)) return;
-      const incident = loadPublicIncidents().find(item => item.id === resourceMatch[1]);
+      const incidents = loadPublicIncidents();
+      const incident = incidents.find(item => item.id === resourceMatch[1]);
       if (!incident) return json(res, 404, { error: 'Public incident not found' });
       if (!validCoordinates(incident.latitude, incident.longitude)) return json(res, 422, { error: 'Incident location is missing or invalid' });
-      const resources = rankResources(incident, loadDemoResources(), RESOURCE_SEARCH_RADIUS_KM);
-      const recommendation = await resourceRecommendation(incident, resources);
-      return json(res, 200, { ok: true, incident, radiusKm: RESOURCE_SEARCH_RADIUS_KM, resources, recommendation,
+      const situation = await situationAssessment(situationForIncident(incident, incidents));
+      const picture = { ...incident, latitude: situation.centerLatitude, longitude: situation.centerLongitude,
+        severity: situation.severity, responseNeeds: situation.responseNeeds, description: situation.summary };
+      const resources = rankResources(picture, loadDemoResources(), RESOURCE_SEARCH_RADIUS_KM);
+      const recommendation = await resourceRecommendation(picture, resources);
+      return json(res, 200, { ok: true, incident, situation, radiusKm: RESOURCE_SEARCH_RADIUS_KM, resources, recommendation,
         dataSource: 'REGISTERED_DEMO_DATA', officialAvailability: false,
         message: resources.length ? 'Authority decision support only; no agency has been dispatched.' : `No relevant registered demo resources found within ${RESOURCE_SEARCH_RADIUS_KM} km.` });
     }
@@ -276,7 +338,9 @@ const server = http.createServer(async (req, res) => {
         if (index < 0) return json(res, 404, { error: 'Public incident not found' });
         const incident = incidents[index];
         if (incident.status === 'CLOSED') return json(res, 409, { error: 'Incident is closed' });
-        const candidates = rankResources(incident, loadDemoResources(), RESOURCE_SEARCH_RADIUS_KM);
+        const situation = situationForIncident(incident, incidents);
+        const candidates = rankResources({ ...incident, latitude: situation.centerLatitude, longitude: situation.centerLongitude,
+          severity: situation.severity, responseNeeds: situation.responseNeeds }, loadDemoResources(), RESOURCE_SEARCH_RADIUS_KM);
         const selected = candidates.find(item => item.id === body.resourceId && item.available);
         if (!selected) return json(res, 422, { error: 'Select an available, relevant registered demo resource within the search radius' });
         const action = { id: crypto.randomUUID(), resourceId: selected.id, resourceName: selected.name,

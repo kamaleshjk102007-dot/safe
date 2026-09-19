@@ -12,6 +12,11 @@ const REQUIREMENTS = {
   MISSING_PERSON: ['SEARCH', 'SEARCH_AND_RESCUE', 'SECURITY', 'MEDICAL'],
   OTHER: [],
 };
+const NEED_CAPABILITIES = {
+  FIRE_RESCUE: ['FIRE', 'RESCUE', 'LANDSLIDE'], SEARCH_AND_RESCUE: ['SEARCH_AND_RESCUE', 'SEARCH', 'RESCUE'],
+  MEDICAL: ['MEDICAL', 'AMBULANCE'], ROAD_CLEARANCE: ['DEBRIS_REMOVAL', 'TRAFFIC'],
+  POLICE_SUPPORT: ['SECURITY', 'TRAFFIC'], WATER_RESCUE: ['WATER_RESCUE', 'FLOOD'],
+};
 
 function validCoordinates(lat, lng) {
   return typeof lat === 'number' && Number.isFinite(lat) && lat >= -90 && lat <= 90 &&
@@ -28,14 +33,18 @@ function rankResources(incident, resources, radiusKm) {
     seen.add(resource.id);
     const distanceKm = calculateDistanceMeters(incident.latitude, incident.longitude, resource.latitude, resource.longitude) / 1000;
     if (distanceKm > radiusKm) return [];
-    const matchingCapabilities = resource.capabilities.filter(capability => REQUIREMENTS[incident.incidentType].includes(capability));
+    const needs = Array.isArray(incident.responseNeeds) ? incident.responseNeeds : [];
+    const neededCapabilities = needs.flatMap(need => NEED_CAPABILITIES[need] || []);
+    const matchingCapabilities = resource.capabilities.filter(capability =>
+      REQUIREMENTS[incident.incidentType].includes(capability) || neededCapabilities.includes(capability));
     if (!matchingCapabilities.length) return [];
     const status = ['AVAILABLE', 'BUSY', 'OFFLINE', 'UNKNOWN'].includes(resource.status) ? resource.status : 'UNKNOWN';
     const available = resource.available === true && status === 'AVAILABLE';
-    const priority = matchingCapabilities.length * 100 + (available ? 50 : status === 'BUSY' ? 10 : 0) - distanceKm;
+    const matchedNeeds = needs.filter(need => resource.capabilities.some(capability => NEED_CAPABILITIES[need]?.includes(capability)));
+    const priority = matchedNeeds.length * 150 + matchingCapabilities.length * 100 + (available ? 50 : status === 'BUSY' ? 10 : 0) - distanceKm;
     return [{ id: resource.id, name: resource.name, type: resource.type, latitude: resource.latitude,
       longitude: resource.longitude, capabilities: resource.capabilities, matchingCapabilities,
-      capabilityMatch: true, available, status,
+      capabilityMatch: true, matchedNeeds, available, status,
       distanceKm: Math.round(distanceKm * 10) / 10, priority: Math.round(priority * 10) / 10, demo: true }];
   }).sort((a, b) => b.priority - a.priority || a.distanceKm - b.distanceKm || a.id.localeCompare(b.id));
 }

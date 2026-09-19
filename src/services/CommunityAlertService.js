@@ -180,6 +180,14 @@ class CommunityAlertServiceClass {
     return authorityGet(`${normalizeUrl(serverUrl)}/public-incidents`, authorityKey);
   }
 
+  async listPublicSituations({ serverUrl, authorityKey }) {
+    return authorityGet(`${normalizeUrl(serverUrl)}/public-situations`, authorityKey);
+  }
+
+  async getPublicSituation({ serverUrl, authorityKey, situationId }) {
+    return authorityGet(`${normalizeUrl(serverUrl)}/public-situations/${encodeURIComponent(situationId)}`, authorityKey);
+  }
+
   async getNearbyResources({ serverUrl, authorityKey, incidentId }) {
     return authorityGet(`${normalizeUrl(serverUrl)}/public-incidents/${encodeURIComponent(incidentId)}/nearby-resources`, authorityKey);
   }
